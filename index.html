@@ -76,6 +76,17 @@
   .nav-footer b{color:var(--chalk);}
   .logout-btn{margin-top:8px;width:100%;padding:8px;border-radius:7px;background:rgba(193,68,60,.2);color:#F3B3AE;border:1px solid rgba(193,68,60,.4);font-weight:700;font-size:.82rem;}
 
+  .quick-add-btn{width:100%;padding:9px;border-radius:8px;background:var(--amber);color:#2B1B04;border:none;font-weight:700;font-size:.85rem;margin-bottom:14px;}
+  .quick-add-btn:hover{background:var(--amber-deep);}
+
+  /* Desktop: permanent left sidebar, no hamburger needed */
+  @media (min-width:900px){
+    #app-shell.show{flex-direction:row;}
+    .topbar{display:none;}
+    .nav-drawer-mask{display:none;}
+    .nav-drawer{position:relative;top:auto;left:auto;height:100vh;transform:none;transition:none;box-shadow:none;flex-shrink:0;}
+  }
+
   .content{flex:1;padding:28px 34px;overflow-y:auto;}
   .view-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;gap:16px;flex-wrap:wrap;}
   .view-title{font-size:1.4rem;font-weight:900;margin:0;}
@@ -240,6 +251,9 @@ async function saveRecruitment(id, arr){ await setJSON('batch-recruitment-'+id, 
 async function loadRanking(id){ return (await getJSON('batch-ranking-'+id, true)) || {}; }
 async function saveRanking(id, obj){ await setJSON('batch-ranking-'+id, obj, true); }
 
+async function loadPresentation(id){ return (await getJSON('batch-presentation-'+id, true)) || []; }
+async function savePresentation(id, arr){ await setJSON('batch-presentation-'+id, arr, true); }
+
 function dateLabel(dateStr){
   if(!dateStr) return '-';
   const [y,m,d] = dateStr.split('-');
@@ -288,7 +302,10 @@ function showRegQrModal(link, title, note){
 
 function showCredentialsModal(s, batch){
   const appLink = location.origin + location.pathname;
-  const msg = `Hi ${s.name}! You're approved for ${batch.name}.\nLogin here: ${appLink}\nChoose "Member", then sign in with:\nPhone: ${s.phone}\nPassword: ${s.password}`;
+  const directLink = s.accessToken ? buildDirectAccessLink(s) : null;
+  const msg = directLink
+    ? `Hi ${s.name}! You're approved for ${batch.name}.\n\nJust tap this link to go straight in — no password needed:\n${directLink}\n\n(Backup sign-in page if the link ever stops working: ${appLink} — choose "Member", Phone: ${s.phone}, Password: ${s.password})`
+    : `Hi ${s.name}! You're approved for ${batch.name}.\nLogin here: ${appLink}\nChoose "Member", then sign in with:\nPhone: ${s.phone}\nPassword: ${s.password}`;
   const waLink = `https://wa.me/${(s.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`;
   const mailLink = `mailto:${encodeURIComponent(s.email||'')}?subject=${encodeURIComponent('Your '+batch.name+' login details')}&body=${encodeURIComponent(msg)}`;
   document.getElementById('modal-root').innerHTML = `
@@ -301,6 +318,7 @@ function showCredentialsModal(s, batch){
           <a class="btn btn-amber" href="${waLink}" target="_blank" style="flex:1;text-align:center;text-decoration:none;">Open WhatsApp</a>
           <a class="btn" href="${mailLink}" style="flex:1;text-align:center;text-decoration:none;">Open Email</a>
         </div>
+        ${directLink ? `<button class="btn" style="width:100%;margin-top:10px;" onclick="showDirectLinkModal('${s.id}')">Show Direct Link QR</button>` : ''}
         <button class="btn" style="width:100%;margin-top:10px;" onclick="closeModal()">Close</button>
       </div>
     </div>
@@ -499,6 +517,14 @@ function buildMemberAccessLink(batch){
   return location.origin + location.pathname + '?batch=' + batch.code + '&mode=login';
 }
 
+function buildDirectAccessLink(student){
+  return location.origin + location.pathname + '?m=' + student.accessToken;
+}
+
+function buildQuickAccessLink(batch){
+  return location.origin + location.pathname + '?batch=' + batch.code + '&mode=quick';
+}
+
 async function showPublicRegister(batchId){
   const batch = S.batches.find(b=>b.id===batchId);
   document.getElementById('login-screen').innerHTML = `
@@ -521,6 +547,21 @@ async function showPublicAccess(batchId){
     </div>
   `;
   renderPublicLoginForm(batchId);
+}
+
+async function showPublicQuickAccess(batchId){
+  const batch = S.batches.find(b=>b.id===batchId);
+  const data = await loadBatchData(batchId);
+  const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('login-screen').innerHTML = `
+    <div class="login-card">
+      <p class="login-eyebrow">MAD Breakegg Program</p>
+      <h1 class="login-title">${escapeHtml(batch.name)}</h1>
+      <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Tap your name to go in</p>
+      ${approved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` :
+        approved.map(s=>`<button class="btn" style="width:100%;margin-bottom:8px;" onclick="enterAsMember('${batchId}','${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')">${escapeHtml(s.name)}</button>`).join('')}
+    </div>
+  `;
 }
 
 function renderPublicRegForm(batchId){
@@ -630,6 +671,7 @@ const ADMIN_NAV = [
   ['attendance','Attendance'],
   ['appointments','Appointments'],
   ['recruitment','Recruitment'],
+  ['presentation','Presentation'],
   ['ranking','Ranking Board'],
   ['marks','Marks'],
   ['notifications','Notifications'],
@@ -656,6 +698,7 @@ function renderSidebar(){
     <div class="nav-drawer-mask ${S.navOpen?'open':''}" onclick="closeNavMenu()"></div>
     <div class="nav-drawer ${S.navOpen?'open':''}">
       <div class="sidebar-brand">📋 MAD Breakegg Program<span>One batch every two weeks, all in order</span></div>
+      ${S.isAdmin ? `<button class="quick-add-btn" onclick="quickAddBatch()">+ New Batch</button>` : ''}
       ${nav.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('')}
       <div class="nav-spacer"></div>
       <div class="nav-footer">Signed in as<br><b>${escapeHtml(who)}</b></div>
@@ -666,6 +709,12 @@ function renderSidebar(){
 
 function toggleNavMenu(){ S.navOpen = !S.navOpen; renderSidebar(); }
 function closeNavMenu(){ S.navOpen = false; renderSidebar(); }
+
+async function quickAddBatch(){
+  S.navOpen = false;
+  renderSidebar();
+  await openBatchModal();
+}
 
 async function switchView(key){
   S.view = key;
@@ -689,6 +738,7 @@ async function renderView(){
       else if(S.view==='attendance') await viewAttendance(c);
       else if(S.view==='appointments') await viewAppointments(c);
       else if(S.view==='recruitment') await viewRecruitmentLog(c);
+      else if(S.view==='presentation') await viewPresentation(c);
       else if(S.view==='ranking') await viewRanking(c);
       else if(S.view==='marks') await viewMarks(c);
       else if(S.view==='notifications') await viewNotifications(c);
@@ -763,6 +813,7 @@ async function viewBatches(c){
       ${visible.map(b=>{
         const link = buildRegistrationLink(b);
         const accessLink = buildMemberAccessLink(b);
+        const quickLink = buildQuickAccessLink(b);
         return `
         <div class="batch-card">
           <span class="badge ${statusBadgeClass(b.status)}">${statusLabel(b.status)}</span>
@@ -777,7 +828,7 @@ async function viewBatches(c){
           </div>
           <div class="btn-row" style="margin-top:8px;">
             <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${link}')">🔗 Registration Link</button>
-            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link to sign in (password or Guest) and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here.')">🔑 Member Access Link</button>
+            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it, taps their own name from the list, and goes straight in. No password. Only approved members show up in the list.')">⚡ Quick Access Link</button>
           </div>
           <div class="btn-row" style="margin-top:8px;">
             <select class="btn btn-sm" style="flex:1;" onchange="changeBatchStatus('${b.id}', this.value)">
@@ -915,6 +966,7 @@ async function renderRegBody(){
   const approved = data.students.filter(s=>(s.status||'approved')==='approved');
   const link = buildRegistrationLink(batch);
   const accessLink = buildMemberAccessLink(batch);
+  const quickLink = buildQuickAccessLink(batch);
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
@@ -928,13 +980,23 @@ async function renderRegBody(){
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">Member Access Link</h3>
+      <h3 style="margin-top:0;">⚡ Quick Access Link (recommended)</h3>
+      <div class="btn-row" style="align-items:center;">
+        <input readonly value="${quickLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
+        <button class="btn btn-sm" onclick="copyRegLink('${quickLink}')">Copy Link</button>
+        <button class="btn btn-sm" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it, taps their own name from the list, and goes straight in. No password. Only approved members show up in the list.')">Show QR</button>
+      </div>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Post this ONE link in the batch group chat — everyone opens the same link, taps their own name, and goes straight in. No phone number, no password.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">Member Access Link (backup, with password)</h3>
       <div class="btn-row" style="align-items:center;">
         <input readonly value="${accessLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
         <button class="btn btn-sm" onclick="copyRegLink('${accessLink}')">Copy Link</button>
         <button class="btn btn-sm" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link to sign in (password or Guest) and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here.')">Show QR</button>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Share this separate link with already-approved members — it opens straight to Sign In / Guest access, skipping the registration form.</p>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Old-style link that asks for phone + password — keep as a fallback in case the Quick Access list ever gets too long to scroll through.</p>
     </div>
 
     <div class="tab-strip">
@@ -990,6 +1052,7 @@ function renderApprovedTable(approved){
           <td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td>
           <td>${fmtDate(s.approvedAt||s.registeredAt)}</td>
           <td class="btn-row">
+            <button class="btn btn-sm btn-amber" onclick="showDirectLinkModal('${s.id}')">Direct Link</button>
             <button class="btn btn-sm" onclick="resendCredentials('${s.id}')">Resend Login</button>
             <button class="btn btn-sm" onclick="transferStudent('${s.id}')">Transfer</button>
             <button class="btn btn-sm btn-danger" onclick="removeStudent('${s.id}')">Remove</button>
@@ -1005,6 +1068,7 @@ async function approveStudent(studentId){
   if(!s) return;
   s.status = 'approved';
   s.password = genCode(6);
+  s.accessToken = uid('mtok');
   s.approvedAt = new Date().toISOString();
   await saveBatchData(S.currentBatchId, data);
   await recalcStudentCount(S.currentBatchId);
@@ -1103,8 +1167,20 @@ async function resendCredentials(studentId){
   const s = data.students.find(x=>x.id===studentId);
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   if(!s || !batch) return;
-  if(!s.password){ s.password = genCode(6); await saveBatchData(S.currentBatchId, data); }
+  let changed = false;
+  if(!s.password){ s.password = genCode(6); changed = true; }
+  if(!s.accessToken){ s.accessToken = uid('mtok'); changed = true; }
+  if(changed) await saveBatchData(S.currentBatchId, data);
   showCredentialsModal(s, batch);
+}
+
+async function showDirectLinkModal(studentId){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  if(!s) return;
+  if(!s.accessToken){ s.accessToken = uid('mtok'); await saveBatchData(S.currentBatchId, data); }
+  const link = buildDirectAccessLink(s);
+  showRegQrModal(link, 'Direct Link — ' + s.name, 'Send this exact link to ' + s.name + ' only. Opening it signs them straight in as a member — no phone number or password needed. Treat it like a password: anyone with the link can access their account.');
 }
 
 async function adminAddStudent(){
@@ -1585,6 +1661,107 @@ async function deleteRecruit(id){
   await saveRecruitment(S.currentBatchId, list);
   toast('Deleted');
   await renderRecruitBody();
+}
+
+/* ------------------------------------------------------------
+   Presentation Assignments (Senior -> members they handle)
+------------------------------------------------------------ */
+async function viewPresentation(c){
+  S.batches = await loadBatches();
+  if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
+  c.innerHTML = `
+    <div class="view-head">
+      <div><h2 class="view-title">Presentation</h2><p class="view-desc">Which senior is handling each member's presentation</p></div>
+      ${batchSelectHtml(S.currentBatchId, 'changePresoBatch')}
+    </div>
+    <div id="preso-body"></div>
+  `;
+  await renderPresoBody();
+}
+async function changePresoBatch(id){ S.currentBatchId = id; await renderPresoBody(); }
+
+async function renderPresoBody(){
+  const body = document.getElementById('preso-body');
+  if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🎤</div>Please select a batch first.</div>`; return; }
+  const groups = await loadPresentation(S.currentBatchId);
+  body.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">+ Add Senior</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+        <div class="field"><label>Senior Name</label><input id="preso-senior-name" placeholder="e.g. Yvonne"></div>
+      </div>
+      <button class="btn btn-amber" onclick="addPresentationGroup()">+ Add Senior</button>
+    </div>
+    ${groups.length===0 ? `<div class="card"><div class="empty-state"><div class="big">🎤</div>No seniors added yet — add one above.</div></div>` :
+      groups.map(g=>`
+        <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden;">
+          <div style="background:rgba(232,163,61,.22);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:800;font-size:1.02rem;">${escapeHtml(g.senior)}</span>
+            <button class="btn btn-sm btn-danger" onclick="deletePresentationGroup('${g.id}')">Delete Senior</button>
+          </div>
+          ${g.members.length===0 ? `<div class="empty-state" style="padding:16px;">No one assigned yet</div>` : `
+          <table><tbody>
+            ${g.members.map(m=>`
+              <tr>
+                <td>${escapeHtml(m.name)}${m.location ? ` <span style="color:var(--muted);">| ${escapeHtml(m.location)}</span>` : ''}</td>
+                <td style="text-align:right;white-space:nowrap;">${escapeHtml(m.phone||'-')} <button class="btn btn-sm btn-danger" style="margin-left:8px;" onclick="deletePresentationMember('${g.id}','${m.id}')">✕</button></td>
+              </tr>`).join('')}
+          </tbody></table>`}
+          <div style="padding:14px 16px;border-top:1px solid var(--line);">
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:8px;">
+              <div class="field" style="margin-bottom:0;"><label>Name</label><input id="preso-m-name-${g.id}"></div>
+              <div class="field" style="margin-bottom:0;"><label>Location</label><input id="preso-m-loc-${g.id}" placeholder="e.g. Ipoh"></div>
+              <div class="field" style="margin-bottom:0;"><label>Phone</label><input id="preso-m-phone-${g.id}"></div>
+            </div>
+            <button class="btn btn-sm btn-amber" onclick="addPresentationMember('${g.id}')">+ Add Person</button>
+          </div>
+        </div>
+      `).join('')}
+  `;
+}
+
+async function addPresentationGroup(){
+  const nameEl = document.getElementById('preso-senior-name');
+  const senior = nameEl.value.trim();
+  if(!senior){ toast('Enter a senior name'); return; }
+  const groups = await loadPresentation(S.currentBatchId);
+  groups.push({ id: uid('pg'), senior, members: [] });
+  await savePresentation(S.currentBatchId, groups);
+  toast('Senior added');
+  await renderPresoBody();
+}
+
+async function deletePresentationGroup(groupId){
+  if(!confirm('Delete this senior and everyone listed under them?')) return;
+  let groups = await loadPresentation(S.currentBatchId);
+  groups = groups.filter(g=>g.id!==groupId);
+  await savePresentation(S.currentBatchId, groups);
+  toast('Deleted');
+  await renderPresoBody();
+}
+
+async function addPresentationMember(groupId){
+  const name = document.getElementById('preso-m-name-'+groupId).value.trim();
+  const location = document.getElementById('preso-m-loc-'+groupId).value.trim();
+  const phone = document.getElementById('preso-m-phone-'+groupId).value.trim();
+  if(!name){ toast('Enter a name'); return; }
+  const groups = await loadPresentation(S.currentBatchId);
+  const g = groups.find(x=>x.id===groupId);
+  if(!g) return;
+  g.members.push({ id: uid('pm'), name, location, phone });
+  await savePresentation(S.currentBatchId, groups);
+  toast('Added');
+  await renderPresoBody();
+}
+
+async function deletePresentationMember(groupId, memberId){
+  const groups = await loadPresentation(S.currentBatchId);
+  const g = groups.find(x=>x.id===groupId);
+  if(!g) return;
+  g.members = g.members.filter(m=>m.id!==memberId);
+  await savePresentation(S.currentBatchId, groups);
+  toast('Removed');
+  await renderPresoBody();
 }
 
 /* ------------------------------------------------------------
@@ -2278,6 +2455,19 @@ async function viewStuNotifications(c){
 (async function initApp(){
   try{
     const params = new URLSearchParams(location.search);
+    const mtoken = params.get('m');
+    if(mtoken){
+      const batches0 = await loadBatches();
+      S.batches = batches0;
+      for(const b of batches0){
+        const data = await loadBatchData(b.id);
+        const found = data.students.find(s => s.accessToken === mtoken && (s.status||'approved')==='approved');
+        if(found){
+          await enterAsMember(b.id, found.id, found.name);
+          return;
+        }
+      }
+    }
     const code = params.get('batch');
     const mode = params.get('mode');
     if(code){
@@ -2285,7 +2475,9 @@ async function viewStuNotifications(c){
       S.batches = batches;
       const batch = batches.find(b => b.code && b.code.toUpperCase()===code.toUpperCase() && b.status==='active' && !b.archived);
       if(batch){
-        if(mode === 'login'){
+        if(mode === 'quick'){
+          await showPublicQuickAccess(batch.id);
+        } else if(mode === 'login'){
           await showPublicAccess(batch.id);
         } else {
           await showPublicRegister(batch.id);
