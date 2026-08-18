@@ -293,7 +293,7 @@ async function saveBatchPhotos(id, arr){ await setJSON('batch-photos-'+id, arr, 
 async function loadBatchMaterials(id){ return (await getJSON('batch-materials-'+id, true)) || { agenda:'', timetable:[] }; }
 async function saveBatchMaterials(id, data){ await setJSON('batch-materials-'+id, data, true); }
 
-async function loadTop3(id){ return (await getJSON('batch-top3-'+id, true)) || { slots: [{name:'',photo:null},{name:'',photo:null},{name:'',photo:null}] }; }
+async function loadTop3(id){ return (await getJSON('batch-top3-'+id, true)) || { poster: null }; }
 async function saveTop3(id, data){ await setJSON('batch-top3-'+id, data, true); }
 
 async function loadAppointments(id){ return (await getJSON('batch-appointments-'+id, true)) || []; }
@@ -738,18 +738,13 @@ async function renderPbvBody(batchId){
     const rows = await computeRankingRows(batchId);
     const top3 = await loadTop3(batchId);
     body.innerHTML = `
+      ${top3.poster ? `
       <div style="margin-bottom:16px;">
         <h3 style="margin:0 0 10px;font-size:1rem;">🏆 Top 3 Breakegg</h3>
-        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;">
-          ${top3.slots.map((s,i)=>`
-            <div style="text-align:center;">
-              <div style="font-weight:800;font-size:.8rem;margin-bottom:4px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
-              ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:4px;"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.72rem;margin-bottom:4px;">No photo</div>`}
-              <div style="font-size:.8rem;font-weight:600;">${escapeHtml(s.name||'-')}</div>
-            </div>
-          `).join('')}
+        <div class="photo-thumb" style="max-width:260px;aspect-ratio:auto;">
+          <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
         </div>
-      </div>
+      </div>` : ''}
       <div style="overflow-x:auto;">
       ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` : `
       <table>
@@ -892,7 +887,7 @@ function showRegistrationReceived(){
     <div class="login-card" style="text-align:center;">
       <div style="font-size:2.4rem;margin-bottom:6px;">📨</div>
       <h1 class="login-title">Registration Received</h1>
-      <p style="color:var(--muted);font-size:.9rem;">Thanks! Your registration has been received and is waiting for admin approval. You'll get your phone + password login details once you're approved.</p>
+      <p style="color:var(--muted);font-size:.9rem;">Thanks! Your registration has been received and is waiting for admin approval. You'll get a link to sign in once you're approved.</p>
     </div>
   `;
 }
@@ -1885,42 +1880,37 @@ async function saveAgenda(){
   toast('Agenda saved');
 }
 
-async function handleTop3Upload(slotIndex, input){
+async function handleTop3Upload(input){
   const file = input.files && input.files[0];
   if(!file) return;
-  toast('Uploading photo...');
+  toast('Uploading poster...');
   const top3 = await loadTop3(S.currentBatchId);
   try{
-    top3.slots[slotIndex].photo = await resizeImageFile(file, 700);
+    top3.poster = await resizeImageFile(file, 900);
   }catch(e){ console.error(e); toast('Upload failed'); return; }
   await saveTop3(S.currentBatchId, top3);
   input.value = '';
-  toast('Photo saved');
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(batch) await logNote(S.currentBatchId, batch.name, 'top3', 'Top 3 Breakegg poster posted');
+  toast('Poster posted — members can now see it');
   await renderRankingBody();
 }
 
-async function deleteTop3Photo(slotIndex){
-  if(!confirm('Delete this photo?')) return;
+async function deleteTop3Photo(){
+  if(!confirm('Delete this poster?')) return;
   const top3 = await loadTop3(S.currentBatchId);
-  top3.slots[slotIndex].photo = null;
+  top3.poster = null;
   await saveTop3(S.currentBatchId, top3);
-  toast('Photo deleted');
+  toast('Poster removed');
   await renderRankingBody();
 }
 
-async function updateTop3Name(slotIndex, value){
+async function openTop3Modal(){
   const top3 = await loadTop3(S.currentBatchId);
-  top3.slots[slotIndex].name = value;
-  await saveTop3(S.currentBatchId, top3);
-}
-
-async function openTop3Modal(slotIndex){
-  const top3 = await loadTop3(S.currentBatchId);
-  const s = top3.slots[slotIndex];
-  if(!s || !s.photo) return;
+  if(!top3.poster) return;
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
-      <div class="img-modal"><img src="${s.photo}" alt="top3 photo"></div>
+      <div class="img-modal"><img src="${top3.poster}" alt="top3 poster"></div>
     </div>
   `;
 }
@@ -2383,26 +2373,20 @@ async function renderRankingBody(){
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
-        ${top3.slots.map((s,i)=>`
-          <div style="text-align:center;">
-            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
-            ${s.photo ? `
-              <div class="photo-thumb" style="aspect-ratio:1;margin-bottom:8px;" onclick="openTop3Modal(${i})">
-                <img src="${s.photo}" alt="top3">
-                <button class="photo-del" onclick="event.stopPropagation();deleteTop3Photo(${i})">✕</button>
-              </div>
-            ` : `
-              <label class="upload-drop" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:.78rem;">
-                📷 Upload
-                <input type="file" accept="image/*" style="display:none;" onchange="handleTop3Upload(${i}, this)">
-              </label>
-            `}
-            <input type="text" value="${escapeHtml(s.name)}" placeholder="Name" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:.82rem;text-align:center;" onblur="updateTop3Name(${i}, this.value)">
-          </div>
-        `).join('')}
-      </div>
+      <h3 style="margin-top:0;">🏆 Top 3 Breakegg Poster</h3>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Upload one poster image — it only shows to members and on the shared link once you've posted it.</p>
+      ${top3.poster ? `
+        <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3Modal()">
+          <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
+          <button class="photo-del" onclick="event.stopPropagation();deleteTop3Photo()">✕</button>
+        </div>
+      ` : `
+        <label class="upload-drop">
+          📷 Click to upload the Top 3 poster
+          <input type="file" accept="image/*" style="display:none;" onchange="handleTop3Upload(this)">
+        </label>
+        <p style="color:var(--muted);font-size:.8rem;margin-top:8px;">Nothing posted yet — members won't see this section until you upload something.</p>
+      `}
     </div>
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
@@ -2811,18 +2795,13 @@ async function viewStuMaterials(c){
       </div>
       ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;">No photos have been shared yet.</p>` : ''}
     </div>
+    ${top3.poster ? `
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
-        ${top3.slots.map((s,i)=>`
-          <div style="text-align:center;">
-            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
-            ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:6px;" onclick="openTop3ModalStu(${i})"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.78rem;margin-bottom:6px;">No photo</div>`}
-            <div style="font-size:.82rem;font-weight:600;">${s.name ? escapeHtml(s.name) : '-'}</div>
-          </div>
-        `).join('')}
+      <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3ModalStu()">
+        <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
       </div>
-    </div>
+    </div>` : ''}
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Agenda</h3>
       <p style="white-space:pre-wrap;font-size:.9rem;">${mat.agenda ? escapeHtml(mat.agenda) : '<span style="color:var(--muted);">No agenda posted yet.</span>'}</p>
@@ -2836,13 +2815,12 @@ async function viewStuMaterials(c){
   `;
 }
 
-async function openTop3ModalStu(slotIndex){
+async function openTop3ModalStu(){
   const top3 = await loadTop3(S.student.batchId);
-  const s = top3.slots[slotIndex];
-  if(!s || !s.photo) return;
+  if(!top3.poster) return;
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
-      <div class="img-modal"><img src="${s.photo}" alt="top3 photo"></div>
+      <div class="img-modal"><img src="${top3.poster}" alt="top3 poster"></div>
     </div>
   `;
 }
@@ -3134,18 +3112,13 @@ async function viewStuRanking(c){
   const top3 = await loadTop3(S.student.batchId);
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">Ranking Board</h2><p class="view-desc">See how everyone in your batch is scoring</p></div></div>
+    ${top3.poster ? `
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
-        ${top3.slots.map((s,i)=>`
-          <div style="text-align:center;">
-            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
-            ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:6px;" onclick="openTop3ModalStu(${i})"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.78rem;margin-bottom:6px;">No photo</div>`}
-            <div style="font-size:.85rem;font-weight:600;">${escapeHtml(s.name||'-')}</div>
-          </div>
-        `).join('')}
+      <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3ModalStu()">
+        <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
       </div>
-    </div>
+    </div>` : ''}
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
       <table>
