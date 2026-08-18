@@ -119,8 +119,7 @@
   .badge-cancelled{background:rgba(193,68,60,.12);color:var(--danger);}
 
   .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
-  .batch-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;}
-  .batch-card::before{content:'';position:absolute;top:0;left:18px;width:36px;height:8px;background:var(--amber);border-radius:0 0 6px 6px;}
+  .batch-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;overflow:hidden;}
   .batch-name{font-weight:800;font-size:1.05rem;margin:6px 0 2px;}
   .batch-meta{font-size:.8rem;color:var(--muted);margin-bottom:10px;}
   .batch-code{font-family:'JetBrains Mono',monospace;background:var(--paper-soft);padding:2px 8px;border-radius:6px;font-size:.78rem;letter-spacing:1px;}
@@ -1011,6 +1010,15 @@ async function viewDashboard(c){
   const totalStudents = batches.reduce((sum,b)=>sum+(b.studentCount||0),0);
   const notes = (await loadNotifications()).slice(0,8);
 
+  const pendingList = [];
+  for(const b of batches){
+    const data = await loadBatchData(b.id);
+    data.students.filter(s=>(s.status||'approved')==='pending').forEach(s=>{
+      pendingList.push({ batchId: b.id, batchName: b.name, student: s });
+    });
+  }
+  pendingList.sort((a,b)=> new Date(b.student.registeredAt) - new Date(a.student.registeredAt));
+
   c.innerHTML = `
     <div class="view-head">
       <div><h2 class="view-title">Dashboard</h2><p class="view-desc">Overview of the whole batch program system</p></div>
@@ -1020,7 +1028,22 @@ async function viewDashboard(c){
       <div class="stat-card"><div class="stat-num">${batches.length}</div><div class="stat-label">Total Batches</div></div>
       <div class="stat-card"><div class="stat-num">${active}</div><div class="stat-label">Active Batches</div></div>
       <div class="stat-card"><div class="stat-num">${totalStudents}</div><div class="stat-label">Total Registered Members</div></div>
-      <div class="stat-card"><div class="stat-num">${notes.length}</div><div class="stat-label">Recent Activity</div></div>
+      <div class="stat-card"><div class="stat-num">${pendingList.length}</div><div class="stat-label">Pending Approvals</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;overflow-x:auto;">
+      <h3 style="margin-top:0;">⏳ Pending Approvals (${pendingList.length})</h3>
+      ${pendingList.length===0 ? `<div class="empty-state">Nobody is waiting for approval right now</div>` : `
+      <table><thead><tr><th>Name</th><th>Phone</th><th>Batch</th><th>Submitted</th><th></th></tr></thead>
+      <tbody>
+        ${pendingList.map(p=>`
+          <tr>
+            <td>${escapeHtml(p.student.name)}</td>
+            <td>${escapeHtml(p.student.phone)}</td>
+            <td>${escapeHtml(p.batchName)}</td>
+            <td>${fmtDate(p.student.registeredAt)}</td>
+            <td><button class="btn btn-sm btn-amber" onclick="dashApprove('${p.batchId}','${p.student.id}')">Approve</button></td>
+          </tr>`).join('')}
+      </tbody></table>`}
     </div>
     <div class="card">
       <h3 style="margin-top:0;">Recent Activity</h3>
@@ -1032,6 +1055,12 @@ async function viewDashboard(c){
           </div>`).join('')}
     </div>
   `;
+}
+
+async function dashApprove(batchId, studentId){
+  S.currentBatchId = batchId;
+  await approveStudent(studentId);
+  await viewDashboard(document.getElementById('content'));
 }
 
 /* ------------------------------------------------------------
@@ -1319,7 +1348,7 @@ async function approveStudent(studentId){
   await logNote(S.currentBatchId, batch.name, 'approval', `${s.name} approved`);
   toast('Approved');
   showCredentialsModal(s, batch);
-  await renderRegBody();
+  if(document.getElementById('reg-body')) await renderRegBody();
 }
 
 async function rejectStudent(studentId){
