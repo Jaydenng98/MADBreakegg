@@ -174,6 +174,8 @@
 </head>
 <body>
 
+<div id="db-status-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:12px 16px;font-size:.85rem;font-family:monospace;white-space:pre-wrap;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>
+
 <div id="login-screen">
   <div class="login-card">
     <p class="login-eyebrow">MAD Breakegg Program</p>
@@ -206,7 +208,28 @@ const MALAYSIA_STATES = ["Kuala Lumpur","Selangor","Johor","Penang","Sabah","Sar
 
 const SUPABASE_URL = 'https://clmdzczzxpvyzuthwqno.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_tZ0tm3AhNBtsYSwxL-FFWg_8lp6-UnV';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let sb;
+let SB_LOAD_ERROR = null;
+try{
+  if(!window.supabase || !window.supabase.createClient) throw new Error('Supabase JS library did not load from CDN (blocked by network/adblock, or script tag missing).');
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}catch(e){
+  SB_LOAD_ERROR = e.message || String(e);
+  // Stub client so the rest of the app doesn't crash — every call will fail
+  // gracefully and get caught by the normal try/catch in getJSON/setJSON.
+  const failResult = async()=>({ error: { code: 'CLIENT_INIT_FAILED', message: SB_LOAD_ERROR } });
+  sb = {
+    from: function(){
+      return {
+        upsert: failResult,
+        select: function(){
+          return { eq: function(){ return { order: function(){ return { limit: failResult }; } }; } };
+        },
+        delete: function(){ return { eq: failResult }; }
+      };
+    }
+  };
+}
 
 let S = {
   loginRole: 'admin',
@@ -2556,9 +2579,36 @@ async function viewStuNotifications(c){
 }
 
 /* ============================================================
+   Database self-test — shows an unmissable banner if anything
+   about the Supabase connection or table setup is broken
+============================================================ */
+function showDbBanner(msg){
+  const el = document.getElementById('db-status-banner');
+  el.textContent = '⚠️ Database connection problem — screenshot this and send it to fix: ' + msg;
+  el.style.display = 'block';
+}
+async function runDbSelfTest(){
+  if(SB_LOAD_ERROR){ showDbBanner('CLIENT INIT FAILED — ' + SB_LOAD_ERROR); return; }
+  try{
+    const testKey = '__conn_test__';
+    const testVal = { ping: Date.now() };
+    const up = await sb.from('app_storage').upsert({ key: testKey, value: testVal, shared: true, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if(up.error){ showDbBanner('WRITE FAILED — ' + up.error.code + ': ' + up.error.message + (up.error.hint ? ' | hint: ' + up.error.hint : '')); return; }
+    const rd = await sb.from('app_storage').select('value').eq('key', testKey).order('updated_at', { ascending:false }).limit(1);
+    if(rd.error){ showDbBanner('READ FAILED — ' + rd.error.code + ': ' + rd.error.message + (rd.error.hint ? ' | hint: ' + rd.error.hint : '')); return; }
+    if(!rd.data || !rd.data.length || rd.data[0].value.ping !== testVal.ping){ showDbBanner('READ/WRITE MISMATCH — wrote a value but could not read the same value back. Table may have duplicate keys or a caching layer.'); return; }
+    // self-test passed — clean up the test row silently
+    await sb.from('app_storage').delete().eq('key', testKey);
+  }catch(e){
+    showDbBanner('EXCEPTION — ' + (e && e.message ? e.message : String(e)) + '. This usually means the Supabase JS library failed to load, or the Project URL is wrong.');
+  }
+}
+
+/* ============================================================
    Init
 ============================================================ */
 (async function initApp(){
+  await runDbSelfTest();
   try{
     const params = new URLSearchParams(location.search);
     const mtoken = params.get('m');
