@@ -67,6 +67,8 @@
   .nav-drawer.open{transform:translateX(0);}
 
   .sidebar-brand{font-weight:900;font-size:1.15rem;padding:0 8px 18px;border-bottom:1px dashed rgba(245,243,234,.25);margin-bottom:14px;}
+  .nav-group-label{font-size:.72rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--chalk-dim);padding:14px 12px 6px;}
+  .nav-group-label:first-of-type{padding-top:0;}
   .sidebar-brand span{display:block;font-family:'Caveat',cursive;font-size:1rem;color:var(--amber);font-weight:700;}
   .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-bottom:3px;background:none;border:none;color:var(--chalk-dim);text-align:left;width:100%;font-size:.92rem;font-weight:500;}
   .nav-item:hover{background:rgba(245,243,234,.08);color:var(--chalk);}
@@ -723,7 +725,20 @@ async function renderPbvBody(batchId){
 
   if(S.pbvTab === 'ranking'){
     const rows = await computeRankingRows(batchId);
+    const top3 = await loadTop3(batchId);
     body.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <h3 style="margin:0 0 10px;font-size:1rem;">🏆 Top 3 Breakegg</h3>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;">
+          ${top3.slots.map((s,i)=>`
+            <div style="text-align:center;">
+              <div style="font-weight:800;font-size:.8rem;margin-bottom:4px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
+              ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:4px;"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.72rem;margin-bottom:4px;">No photo</div>`}
+              <div style="font-size:.8rem;font-weight:600;">${escapeHtml(s.name||'-')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
       <div style="overflow-x:auto;">
       ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` : `
       <table>
@@ -925,22 +940,28 @@ function logout(){
 /* ============================================================
    Sidebar
 ============================================================ */
-const ADMIN_NAV = [
-  ['dashboard','Dashboard'],
-  ['batches','Batches'],
-  ['registration','Registration'],
-  ['materials','Photos & Info'],
-  ['attendance','Attendance'],
-  ['appointments','Appointments'],
-  ['recruitment','Recruitment'],
-  ['presentation','Presentation'],
-  ['ranking','Ranking Board'],
-  ['marks','Marks'],
-  ['notifications','Notifications'],
-  ['reports','Reports'],
-  ['search','Search'],
-  ['settings','Settings'],
+const ADMIN_NAV_GROUPS = [
+  { label: 'Overview', items: [
+    ['dashboard','Dashboard'],
+    ['batches','Batches'],
+    ['registration','Registration'],
+    ['materials','Photos & Info'],
+  ]},
+  { label: 'Activities', items: [
+    ['attendance','Attendance'],
+    ['appointments','Appointments'],
+    ['recruitment','Recruitment'],
+    ['presentation','Presentation'],
+    ['ranking','Ranking Board'],
+  ]},
+  { label: 'Manage', items: [
+    ['notifications','Notifications'],
+    ['reports','Reports'],
+    ['search','Search'],
+    ['settings','Settings'],
+  ]},
 ];
+const ADMIN_NAV = ADMIN_NAV_GROUPS.flatMap(g=>g.items);
 const STUDENT_NAV = [
   ['stu-home','My Batch'],
   ['stu-appointments','Appointments'],
@@ -950,8 +971,13 @@ const STUDENT_NAV = [
 ];
 
 function renderSidebar(){
-  const nav = S.isAdmin ? ADMIN_NAV : STUDENT_NAV;
   const who = S.isAdmin ? 'Admin' : (S.student ? S.student.name : '');
+  const navHtml = S.isAdmin
+    ? ADMIN_NAV_GROUPS.map(g=>`
+        <div class="nav-group-label">${g.label}</div>
+        ${g.items.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('')}
+      `).join('')
+    : STUDENT_NAV.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('');
   document.getElementById('sidebar').innerHTML = `
     <div class="topbar">
       <div class="topbar-brand">📋 MAD Breakegg Program</div>
@@ -961,7 +987,7 @@ function renderSidebar(){
     <div class="nav-drawer ${S.navOpen?'open':''}">
       <div class="sidebar-brand">📋 MAD Breakegg Program<span>One batch every two weeks, all in order</span></div>
       ${S.isAdmin ? `<button class="quick-add-btn" onclick="quickAddBatch()">+ New Batch</button>` : ''}
-      ${nav.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('')}
+      ${navHtml}
       <div class="nav-spacer"></div>
       <div class="nav-footer">Signed in as<br><b>${escapeHtml(who)}</b></div>
       <button class="logout-btn" onclick="logout()">Log Out</button>
@@ -1002,7 +1028,6 @@ async function renderView(){
       else if(S.view==='recruitment') await viewRecruitmentLog(c);
       else if(S.view==='presentation') await viewPresentation(c);
       else if(S.view==='ranking') await viewRanking(c);
-      else if(S.view==='marks') await viewMarks(c);
       else if(S.view==='notifications') await viewNotifications(c);
       else if(S.view==='reports') await viewReports(c);
       else if(S.view==='search') await viewSearch(c);
@@ -1028,7 +1053,6 @@ async function viewDashboard(c){
   S.batches = batches;
   const active = batches.filter(b=>b.status==='active').length;
   const totalStudents = batches.reduce((sum,b)=>sum+(b.studentCount||0),0);
-  const notes = (await loadNotifications()).slice(0,8);
 
   const pendingList = [];
   const inactiveList = [];
@@ -1114,16 +1138,6 @@ async function viewDashboard(c){
             <td><button class="btn btn-sm btn-danger" onclick="dashRemoveMember('${p.batchId}','${p.student.id}')">Remove</button></td>
           </tr>`).join('')}
       </tbody></table>`}
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0;">Recent Activity</h3>
-      ${notes.length===0 ? `<div class="empty-state"><div class="big">🗒️</div>No activity yet</div>` :
-        notes.map(n=>`
-          <div class="notif-item">
-            <div class="notif-time">${fmtDateTime(n.time)}</div>
-            <div><span class="notif-tag">${escapeHtml(n.batchName||'System')}</span>${escapeHtml(n.message)}</div>
-          </div>`).join('')}
     </div>
   `;
 }
@@ -1732,7 +1746,6 @@ async function renderMaterialsBody(){
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   const photos = await loadBatchPhotos(S.currentBatchId);
   const mat = await loadBatchMaterials(S.currentBatchId);
-  const top3 = await loadTop3(S.currentBatchId);
   const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
 
   body.innerHTML = `
@@ -1750,30 +1763,7 @@ async function renderMaterialsBody(){
           </div>
         `).join('')}
       </div>
-      ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;margin-top:10px;">No photos yet — upload some from this batch's sessions or events.</p>` : ''}
-    </div>
-
-    <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
-        ${top3.slots.map((s,i)=>`
-          <div style="text-align:center;">
-            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
-            ${s.photo ? `
-              <div class="photo-thumb" style="aspect-ratio:1;margin-bottom:8px;" onclick="openTop3Modal(${i})">
-                <img src="${s.photo}" alt="top3">
-                <button class="photo-del" onclick="event.stopPropagation();deleteTop3Photo(${i})">✕</button>
-              </div>
-            ` : `
-              <label class="upload-drop" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:.78rem;">
-                📷 Upload
-                <input type="file" accept="image/*" style="display:none;" onchange="handleTop3Upload(${i}, this)">
-              </label>
-            `}
-            <input type="text" value="${escapeHtml(s.name)}" placeholder="Name" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:.82rem;text-align:center;" onblur="updateTop3Name(${i}, this.value)">
-          </div>
-        `).join('')}
-      </div>
+      ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;margin-top:10px;">No photos yet — upload posters or event photos for this batch.</p>` : ''}
     </div>
 
     <div class="card" style="margin-bottom:16px;">
@@ -1877,7 +1867,7 @@ async function handleTop3Upload(slotIndex, input){
   await saveTop3(S.currentBatchId, top3);
   input.value = '';
   toast('Photo saved');
-  await renderMaterialsBody();
+  await renderRankingBody();
 }
 
 async function deleteTop3Photo(slotIndex){
@@ -1886,7 +1876,7 @@ async function deleteTop3Photo(slotIndex){
   top3.slots[slotIndex].photo = null;
   await saveTop3(S.currentBatchId, top3);
   toast('Photo deleted');
-  await renderMaterialsBody();
+  await renderRankingBody();
 }
 
 async function updateTop3Name(slotIndex, value){
@@ -2389,8 +2379,31 @@ async function renderRankingBody(){
   const body = document.getElementById('ranking-body');
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🏆</div>Please select a batch first.</div>`; return; }
   const rows = await computeRankingRows(S.currentBatchId);
+  const top3 = await loadTop3(S.currentBatchId);
 
   body.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
+        ${top3.slots.map((s,i)=>`
+          <div style="text-align:center;">
+            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
+            ${s.photo ? `
+              <div class="photo-thumb" style="aspect-ratio:1;margin-bottom:8px;" onclick="openTop3Modal(${i})">
+                <img src="${s.photo}" alt="top3">
+                <button class="photo-del" onclick="event.stopPropagation();deleteTop3Photo(${i})">✕</button>
+              </div>
+            ` : `
+              <label class="upload-drop" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:.78rem;">
+                📷 Upload
+                <input type="file" accept="image/*" style="display:none;" onchange="handleTop3Upload(${i}, this)">
+              </label>
+            `}
+            <input type="text" value="${escapeHtml(s.name)}" placeholder="Name" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:.82rem;text-align:center;" onblur="updateTop3Name(${i}, this.value)">
+          </div>
+        `).join('')}
+      </div>
+    </div>
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
       <table style="min-width:1100px;">
@@ -2520,17 +2533,35 @@ async function viewNotifications(c){
   c.innerHTML = `
     <div class="view-head">
       <div><h2 class="view-title">Notifications</h2><p class="view-desc">System activity log and reminders (shown in-app, not real SMS/email)</p></div>
-      ${batchSelectHtml('', 'sendReminder')}
+      <div class="btn-row">
+        ${batchSelectHtml('', 'sendReminder')}
+        <button class="btn btn-sm btn-danger" onclick="clearAllNotifications()">Clear All</button>
+      </div>
     </div>
     <div class="card">
       ${notes.length===0 ? `<div class="empty-state"><div class="big">🔔</div>No notifications yet</div>` :
       notes.map(n=>`
         <div class="notif-item">
           <div class="notif-time">${fmtDateTime(n.time)}</div>
-          <div><span class="notif-tag">${escapeHtml(n.batchName||'System')}</span>${escapeHtml(n.message)}</div>
+          <div style="flex:1;"><span class="notif-tag">${escapeHtml(n.batchName||'System')}</span>${escapeHtml(n.message)}</div>
+          <button class="btn btn-sm btn-danger" onclick="deleteNotification('${n.id}')">✕</button>
         </div>`).join('')}
     </div>
   `;
+}
+
+async function deleteNotification(noteId){
+  let notes = await loadNotifications();
+  notes = notes.filter(n=>n.id!==noteId);
+  await setJSON('notifications', notes, true);
+  await viewNotifications(document.getElementById('content'));
+}
+
+async function clearAllNotifications(){
+  if(!confirm('Clear the entire notification log? This cannot be undone.')) return;
+  await setJSON('notifications', [], true);
+  toast('Notifications cleared');
+  await viewNotifications(document.getElementById('content'));
 }
 
 async function sendReminder(batchId){
@@ -2917,7 +2948,7 @@ async function viewStuAppointments(c){
             <td>${escapeHtml(a.origin)}</td>
             <td>${escapeHtml(a.closer)}</td>
             <td>${fmtDate(a.date)}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="stuDeleteAppointment('${a.id}')">Delete</button></td>
+            <td><button class="btn btn-sm" onclick="stuEditAppointment('${a.id}')">Edit</button> <button class="btn btn-sm btn-danger" onclick="stuDeleteAppointment('${a.id}')">Delete</button></td>
           </tr>`).join('')}
       </tbody></table>
     </div>
@@ -2966,6 +2997,40 @@ async function stuDeleteAppointment(id){
   await viewStuAppointments(document.getElementById('content'));
 }
 
+async function stuEditAppointment(id){
+  const list = await loadAppointments(S.student.batchId);
+  const a = list.find(x=>x.id===id && x.madeBy===S.student.studentId);
+  if(!a) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Appointment</h3>
+        <div class="field"><label>Client Name</label><input id="sea-name" value="${escapeHtml(a.clientName)}"></div>
+        <div class="field"><label>Contact (Last 4)</label><input id="sea-contact" maxlength="4" value="${escapeHtml(a.contact)}"></div>
+        <div class="field"><label>Leads Origin</label><input id="sea-origin" value="${escapeHtml(a.origin)}"></div>
+        <div class="field"><label>Closer</label><input id="sea-closer" value="${escapeHtml(a.closer)}"></div>
+        <div class="field"><label>Date</label><input type="date" id="sea-date" value="${a.date||''}"></div>
+        <button class="btn btn-amber" style="width:100%;" onclick="stuSaveEditAppointment('${id}')">Save Changes</button>
+      </div>
+    </div>
+  `;
+}
+
+async function stuSaveEditAppointment(id){
+  const list = await loadAppointments(S.student.batchId);
+  const a = list.find(x=>x.id===id && x.madeBy===S.student.studentId);
+  if(!a) return;
+  a.clientName = document.getElementById('sea-name').value.trim();
+  a.contact = document.getElementById('sea-contact').value.trim();
+  a.origin = document.getElementById('sea-origin').value.trim();
+  a.closer = document.getElementById('sea-closer').value.trim();
+  a.date = document.getElementById('sea-date').value;
+  await saveAppointments(S.student.batchId, list);
+  closeModal();
+  toast('Updated');
+  await viewStuAppointments(document.getElementById('content'));
+}
+
 async function viewStuRecruitment(c){
   const data = await loadBatchData(S.student.batchId);
   const me = data.students.find(s=>s.id===S.student.studentId) || {};
@@ -3001,7 +3066,7 @@ async function viewStuRecruitment(c){
             <td>${escapeHtml(r.origin)}</td>
             <td>${escapeHtml(r.closer)}</td>
             <td>${fmtDate(r.date)}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="stuDeleteRecruit('${r.id}')">Delete</button></td>
+            <td><button class="btn btn-sm" onclick="stuEditRecruit('${r.id}')">Edit</button> <button class="btn btn-sm btn-danger" onclick="stuDeleteRecruit('${r.id}')">Delete</button></td>
           </tr>`).join('')}
       </tbody></table>
     </div>
@@ -3050,10 +3115,57 @@ async function stuDeleteRecruit(id){
   await viewStuRecruitment(document.getElementById('content'));
 }
 
+async function stuEditRecruit(id){
+  const list = await loadRecruitment(S.student.batchId);
+  const r = list.find(x=>x.id===id && x.madeBy===S.student.studentId);
+  if(!r) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Recruit</h3>
+        <div class="field"><label>Recruit Name</label><input id="ser-name" value="${escapeHtml(r.clientName)}"></div>
+        <div class="field"><label>Contact (Last 4)</label><input id="ser-contact" maxlength="4" value="${escapeHtml(r.contact)}"></div>
+        <div class="field"><label>Leads Origin</label><input id="ser-origin" value="${escapeHtml(r.origin)}"></div>
+        <div class="field"><label>Closer</label><input id="ser-closer" value="${escapeHtml(r.closer)}"></div>
+        <div class="field"><label>Date</label><input type="date" id="ser-date" value="${r.date||''}"></div>
+        <button class="btn btn-amber" style="width:100%;" onclick="stuSaveEditRecruit('${id}')">Save Changes</button>
+      </div>
+    </div>
+  `;
+}
+
+async function stuSaveEditRecruit(id){
+  const list = await loadRecruitment(S.student.batchId);
+  const r = list.find(x=>x.id===id && x.madeBy===S.student.studentId);
+  if(!r) return;
+  r.clientName = document.getElementById('ser-name').value.trim();
+  r.contact = document.getElementById('ser-contact').value.trim();
+  r.origin = document.getElementById('ser-origin').value.trim();
+  r.closer = document.getElementById('ser-closer').value.trim();
+  r.date = document.getElementById('ser-date').value;
+  await saveRecruitment(S.student.batchId, list);
+  closeModal();
+  toast('Updated');
+  await viewStuRecruitment(document.getElementById('content'));
+}
+
 async function viewStuRanking(c){
   const rows = await computeRankingRows(S.student.batchId);
+  const top3 = await loadTop3(S.student.batchId);
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">Ranking Board</h2><p class="view-desc">See how everyone in your batch is scoring</p></div></div>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
+        ${top3.slots.map((s,i)=>`
+          <div style="text-align:center;">
+            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
+            ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:6px;" onclick="openTop3ModalStu(${i})"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.78rem;margin-bottom:6px;">No photo</div>`}
+            <div style="font-size:.85rem;font-weight:600;">${escapeHtml(s.name||'-')}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
       <table>
