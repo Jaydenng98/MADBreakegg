@@ -84,7 +84,7 @@
     #app-shell.show{flex-direction:row;}
     .topbar{display:none;}
     .nav-drawer-mask{display:none;}
-    .nav-drawer{position:relative;top:auto;left:auto;height:100vh;transform:none;transition:none;box-shadow:none;flex-shrink:0;}
+    .nav-drawer{position:sticky;top:0;left:auto;height:100vh;align-self:flex-start;transform:none;transition:none;box-shadow:none;flex-shrink:0;}
   }
 
   .content{flex:1;padding:28px 34px;overflow-y:auto;}
@@ -120,9 +120,17 @@
 
   .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
   .batch-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;overflow:hidden;}
-  .batch-name{font-weight:800;font-size:1.05rem;margin:6px 0 2px;}
+  .batch-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .batch-name{font-weight:800;font-size:1.1rem;margin:8px 0 4px;}
+  .batch-daterange{font-size:.85rem;color:var(--ink);font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:2px;}
   .batch-meta{font-size:.8rem;color:var(--muted);margin-bottom:10px;}
+  .batch-meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .batch-pill{font-size:.76rem;color:var(--muted);background:var(--paper-soft);padding:3px 10px;border-radius:20px;}
   .batch-code{font-family:'JetBrains Mono',monospace;background:var(--paper-soft);padding:2px 8px;border-radius:6px;font-size:.78rem;letter-spacing:1px;}
+  .batch-section{padding-top:12px;border-top:1px dashed var(--line);margin-top:12px;}
+  .batch-section:first-of-type{border-top:none;margin-top:0;padding-top:0;}
+  .edit-batch-btn{background:none;border:none;color:var(--muted);font-size:.85rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
+  .edit-batch-btn:hover{background:var(--paper-soft);color:var(--ink);}
 
   .modal-mask{position:fixed;inset:0;background:rgba(21,42,32,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px;}
   .modal{background:var(--paper);border-radius:14px;padding:24px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;}
@@ -344,8 +352,8 @@ function showCredentialsModal(s, batch){
   const appLink = location.origin + location.pathname;
   const directLink = s.accessToken ? buildDirectAccessLink(s) : null;
   const msg = directLink
-    ? `Hi ${s.name}! You're approved for ${batch.name}.\n\nJust tap this link to go straight in — no password needed:\n${directLink}\n\n(Backup sign-in page if the link ever stops working: ${appLink} — choose "Member", Phone: ${s.phone}, Password: ${s.password})`
-    : `Hi ${s.name}! You're approved for ${batch.name}.\nLogin here: ${appLink}\nChoose "Member", then sign in with:\nPhone: ${s.phone}\nPassword: ${s.password}`;
+    ? `Hi ${s.name}! You're approved for ${batch.name}.\n\nJust tap this link to go straight in — no password needed:\n${directLink}`
+    : `Hi ${s.name}! You're approved for ${batch.name}.\nOpen this link and choose "Member" → "Continue as Guest", then enter your phone number to go in — no password needed:\n${appLink}`;
   const waLink = `https://wa.me/${(s.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`;
   const mailLink = `mailto:${encodeURIComponent(s.email||'')}?subject=${encodeURIComponent('Your '+batch.name+' login details')}&body=${encodeURIComponent(msg)}`;
   document.getElementById('modal-root').innerHTML = `
@@ -383,6 +391,23 @@ function fmtDate(iso){
   if(!iso) return '-';
   const d = new Date(iso);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function fmtDateShort(iso){
+  if(!iso) return '-';
+  const d = new Date(iso+'T00:00:00');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate()+' '+months[d.getMonth()];
+}
+function fmtDateRange(startIso, endIso){
+  if(!startIso) return '-';
+  if(!endIso) return fmtDateShort(startIso) + ' – (no end date set)';
+  const sd = new Date(startIso+'T00:00:00');
+  const ed = new Date(endIso+'T00:00:00');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(sd.getFullYear() === ed.getFullYear()){
+    return `${sd.getDate()} ${months[sd.getMonth()]} – ${ed.getDate()} ${months[ed.getMonth()]} ${ed.getFullYear()}`;
+  }
+  return `${sd.getDate()} ${months[sd.getMonth()]} ${sd.getFullYear()} – ${ed.getDate()} ${months[ed.getMonth()]} ${ed.getFullYear()}`;
 }
 function fmtDateTime(iso){
   const d = new Date(iso);
@@ -427,13 +452,10 @@ function renderLoginForm(){
     `;
   } else {
     area.innerHTML = `
-      <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
-      <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
-      <div id="mem-err" class="err-msg" style="display:none;"></div>
-      <button class="btn-primary" onclick="doMemberLogin()">Sign In</button>
-      <p style="text-align:center;color:var(--muted);font-size:.8rem;margin:12px 0;">— OR —</p>
-      <button class="btn" style="width:100%;" onclick="showGuestLogin()">Continue as Guest (no password)</button>
-      <p class="login-sub">Don't have an account yet? Registration happens through the link or QR code your admin shared for your batch — not on this screen.</p>
+      <div class="field"><label>Phone Number</label><input id="guest-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doGuestLogin()"></div>
+      <div id="guest-err" class="err-msg" style="display:none;"></div>
+      <button class="btn-primary" onclick="doGuestLogin()">Continue</button>
+      <p class="login-sub">No password needed — just your registered phone number. Don't have an account yet? Registration happens through the link or QR code your admin shared for your batch — not on this screen.</p>
     `;
   }
 }
@@ -825,12 +847,10 @@ function renderPublicRegForm(batchId){
 function renderPublicLoginForm(batchId){
   document.getElementById('pub-title').textContent = 'Sign In';
   document.getElementById('pubreg-form-area').innerHTML = `
-    <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
-    <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
-    <div id="mem-err" class="err-msg" style="display:none;"></div>
-    <button class="btn-primary" onclick="doMemberLogin()">Sign In</button>
-    <p style="text-align:center;color:var(--muted);font-size:.8rem;margin:12px 0;">— OR —</p>
-    <button class="btn" style="width:100%;" onclick="showGuestLogin('${batchId}')">Continue as Guest (no password)</button>
+    <div class="field"><label>Phone Number</label><input id="guest-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doGuestLogin()"></div>
+    <div id="guest-err" class="err-msg" style="display:none;"></div>
+    <button class="btn-primary" onclick="doGuestLogin()">Continue</button>
+    <p class="login-sub">No password needed — just your registered phone number.</p>
     <p style="text-align:center;color:var(--muted);font-size:.8rem;margin:14px 0 4px;">Not registered yet?</p>
     <button class="btn" style="width:100%;" onclick="renderPublicRegForm('${batchId}')">Register Instead</button>
   `;
@@ -1011,13 +1031,37 @@ async function viewDashboard(c){
   const notes = (await loadNotifications()).slice(0,8);
 
   const pendingList = [];
+  const inactiveList = [];
+  const activeBatches = batches.filter(b=>b.status==='active' && !b.archived);
+
   for(const b of batches){
     const data = await loadBatchData(b.id);
     data.students.filter(s=>(s.status||'approved')==='pending').forEach(s=>{
       pendingList.push({ batchId: b.id, batchName: b.name, student: s });
     });
+
+    if(b.status==='active' && !b.archived && data.attendanceDates.length > 0){
+      const latestDate = data.attendanceDates[data.attendanceDates.length-1];
+      const daysSinceLatest = Math.floor((Date.now() - new Date(latestDate+'T00:00:00').getTime())/86400000);
+      const approved = data.students.filter(s=>(s.status||'approved')==='approved');
+      for(const s of approved){
+        let lastDate = null;
+        for(const ds of data.attendanceDates){
+          if(data.attendance[ds] && data.attendance[ds][s.id]){
+            if(!lastDate || ds > lastDate) lastDate = ds;
+          }
+        }
+        const daysSince = lastDate
+          ? Math.floor((Date.now() - new Date(lastDate+'T00:00:00').getTime())/86400000)
+          : daysSinceLatest;
+        if(daysSince >= 6){
+          inactiveList.push({ batchId: b.id, batchName: b.name, student: s, lastDate, daysSince });
+        }
+      }
+    }
   }
   pendingList.sort((a,b)=> new Date(b.student.registeredAt) - new Date(a.student.registeredAt));
+  inactiveList.sort((a,b)=> b.daysSince - a.daysSince);
 
   c.innerHTML = `
     <div class="view-head">
@@ -1030,6 +1074,15 @@ async function viewDashboard(c){
       <div class="stat-card"><div class="stat-num">${totalStudents}</div><div class="stat-label">Total Registered Members</div></div>
       <div class="stat-card"><div class="stat-num">${pendingList.length}</div><div class="stat-label">Pending Approvals</div></div>
     </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">📎 Today's Attendance</h3>
+      ${activeBatches.length===0 ? `<div class="empty-state">No active batches</div>` : `
+      <div class="btn-row">
+        ${activeBatches.map(b=>`<button class="btn btn-sm btn-amber" onclick="dashSendTodayAttendance('${b.id}')">Send Link — ${escapeHtml(b.name)}</button>`).join('')}
+      </div>`}
+    </div>
+
     <div class="card" style="margin-bottom:16px;overflow-x:auto;">
       <h3 style="margin-top:0;">⏳ Pending Approvals (${pendingList.length})</h3>
       ${pendingList.length===0 ? `<div class="empty-state">Nobody is waiting for approval right now</div>` : `
@@ -1045,6 +1098,24 @@ async function viewDashboard(c){
           </tr>`).join('')}
       </tbody></table>`}
     </div>
+
+    <div class="card" style="margin-bottom:16px;overflow-x:auto;">
+      <h3 style="margin-top:0;">⚠️ Inactive Members — 6+ days no attendance (${inactiveList.length})</h3>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:-6px;">These members haven't been marked present in 6 or more days. Consider following up or removing them.</p>
+      ${inactiveList.length===0 ? `<div class="empty-state">Everyone's been showing up — nobody flagged</div>` : `
+      <table><thead><tr><th>Name</th><th>Batch</th><th>Last Present</th><th>Days</th><th></th></tr></thead>
+      <tbody>
+        ${inactiveList.map(p=>`
+          <tr>
+            <td>${escapeHtml(p.student.name)}</td>
+            <td>${escapeHtml(p.batchName)}</td>
+            <td>${p.lastDate ? dateLabel(p.lastDate) : 'Never'}</td>
+            <td><b style="color:var(--danger);">${p.daysSince}d</b></td>
+            <td><button class="btn btn-sm btn-danger" onclick="dashRemoveMember('${p.batchId}','${p.student.id}')">Remove</button></td>
+          </tr>`).join('')}
+      </tbody></table>`}
+    </div>
+
     <div class="card">
       <h3 style="margin-top:0;">Recent Activity</h3>
       ${notes.length===0 ? `<div class="empty-state"><div class="big">🗒️</div>No activity yet</div>` :
@@ -1061,6 +1132,33 @@ async function dashApprove(batchId, studentId){
   S.currentBatchId = batchId;
   await approveStudent(studentId);
   await viewDashboard(document.getElementById('content'));
+}
+
+async function dashRemoveMember(batchId, studentId){
+  S.currentBatchId = batchId;
+  await removeStudent(studentId);
+  await viewDashboard(document.getElementById('content'));
+}
+
+async function dashSendTodayAttendance(batchId){
+  const today = new Date().toISOString().slice(0,10);
+  const data = await loadBatchData(batchId);
+  if(!data.attendanceDates.includes(today)){
+    data.attendanceDates.push(today);
+    data.attendanceDates.sort();
+  }
+  if(!data.checkinCodes[today]){
+    data.checkinCodes[today] = genCode(6);
+  }
+  await saveBatchData(batchId, data);
+  const batch = S.batches.find(b=>b.id===batchId);
+  const link = buildAttendanceLink(batch, today, data.checkinCodes[today]);
+  await logNote(batchId, batch.name, 'attendance', `Today's attendance link generated (${dateLabel(today)})`);
+  showRegQrModal(
+    link,
+    `Attendance Link — ${dateLabel(today)}`,
+    `Send this to your members for today (${dateLabel(today)}) only. They open it, tap their own name once, and they're marked present.`
+  );
 }
 
 /* ------------------------------------------------------------
@@ -1088,28 +1186,46 @@ async function viewBatches(c){
         const quickLink = buildQuickAccessLink(b);
         return `
         <div class="batch-card">
-          <span class="badge ${statusBadgeClass(b.status)}">${statusLabel(b.status)}</span>
-          ${b.archived ? `<span class="badge badge-cancelled" style="margin-left:6px;">Archived</span>` : ''}
+          <div class="batch-card-head">
+            <div>
+              <span class="badge ${statusBadgeClass(b.status)}">${statusLabel(b.status)}</span>
+              ${b.archived ? `<span class="badge badge-cancelled" style="margin-left:6px;">Archived</span>` : ''}
+            </div>
+            <button class="edit-batch-btn" onclick="openEditBatchModal('${b.id}')" title="Edit batch">✏️ Edit</button>
+          </div>
           <div class="batch-name">${escapeHtml(b.name)}</div>
-          <div class="batch-meta">Start date ${fmtDate(b.startDate)} · ${b.sessions} sessions · ${b.tests} tests</div>
-          <div class="batch-meta">Members: ${b.studentCount||0} &nbsp;|&nbsp; Code <span class="batch-code">${b.code}</span></div>
-          <div class="btn-row">
-            <button class="btn btn-sm" onclick="goBatch('${b.id}','registration')">Registration</button>
-            <button class="btn btn-sm" onclick="goBatch('${b.id}','attendance')">Check-in</button>
-            <button class="btn btn-sm" onclick="goBatch('${b.id}','ranking')">Ranking</button>
+          <div class="batch-daterange">📅 ${fmtDateRange(b.startDate, b.endDate)}</div>
+          <div class="batch-meta">${b.sessions} sessions · ${b.tests} tests</div>
+          <div class="batch-meta-row">
+            <span class="batch-pill">👥 ${b.studentCount||0} members</span>
+            <span class="batch-pill">Code <span class="batch-code">${b.code}</span></span>
           </div>
-          <div class="btn-row" style="margin-top:8px;">
-            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${link}')">🔗 Registration Link</button>
-            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">⚡ Quick Access Link</button>
+
+          <div class="batch-section">
+            <div class="btn-row">
+              <button class="btn btn-sm" style="flex:1;" onclick="goBatch('${b.id}','registration')">Registration</button>
+              <button class="btn btn-sm" style="flex:1;" onclick="goBatch('${b.id}','attendance')">Check-in</button>
+              <button class="btn btn-sm" style="flex:1;" onclick="goBatch('${b.id}','ranking')">Ranking</button>
+            </div>
           </div>
-          <div class="btn-row" style="margin-top:8px;">
-            <select class="btn btn-sm" style="flex:1;" onchange="changeBatchStatus('${b.id}', this.value)">
-              <option value="active" ${b.status==='active'?'selected':''}>Active</option>
-              <option value="completed" ${b.status==='completed'?'selected':''}>Completed</option>
-              <option value="cancelled" ${b.status==='cancelled'?'selected':''}>Cancelled</option>
-            </select>
-            <button class="btn btn-sm" onclick="toggleArchiveBatch('${b.id}')">${b.archived?'Unarchive':'Archive'}</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteBatch('${b.id}')">Delete</button>
+
+          <div class="batch-section">
+            <div class="btn-row">
+              <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${link}')">🔗 Registration Link</button>
+              <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">⚡ Quick Access Link</button>
+            </div>
+          </div>
+
+          <div class="batch-section">
+            <div class="btn-row">
+              <select class="btn btn-sm" style="flex:1;" onchange="changeBatchStatus('${b.id}', this.value)">
+                <option value="active" ${b.status==='active'?'selected':''}>Active</option>
+                <option value="completed" ${b.status==='completed'?'selected':''}>Completed</option>
+                <option value="cancelled" ${b.status==='cancelled'?'selected':''}>Cancelled</option>
+              </select>
+              <button class="btn btn-sm" onclick="toggleArchiveBatch('${b.id}')">${b.archived?'Unarchive':'Archive'}</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteBatch('${b.id}')">Delete</button>
+            </div>
           </div>
         </div>
       `;}).join('')}
@@ -1138,13 +1254,16 @@ async function setNextBatchNumber(n){ await setJSON('next-batch-number', n, true
 
 async function openBatchModal(){
   const nextNum = await getNextBatchNumber();
+  const startDefault = new Date().toISOString().slice(0,10);
+  const endDefault = new Date(Date.now() + 13*86400000).toISOString().slice(0,10);
   const root = document.getElementById('modal-root');
   root.innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
       <div class="modal">
         <h3>New Batch</h3>
         <div class="field"><label>Batch Name</label><input id="nb-name" value="Batch ${nextNum}"></div>
-        <div class="field"><label>Start Date</label><input id="nb-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label>Start Date</label><input id="nb-date" type="date" value="${startDefault}"></div>
+        <div class="field"><label>End Date</label><input id="nb-enddate" type="date" value="${endDefault}"></div>
         <div class="field"><label>Number of Sessions</label><input id="nb-sessions" type="number" min="1" value="4"></div>
         <div class="field"><label>Number of Tests</label><input id="nb-tests" type="number" min="1" value="3"></div>
         <div class="btn-row">
@@ -1157,15 +1276,56 @@ async function openBatchModal(){
 }
 function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
 
+async function openEditBatchModal(batchId){
+  const batches = await loadBatches();
+  const b = batches.find(x=>x.id===batchId);
+  if(!b) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Batch</h3>
+        <div class="field"><label>Batch Name</label><input id="eb-name" value="${escapeHtml(b.name)}"></div>
+        <div class="field"><label>Start Date</label><input id="eb-startdate" type="date" value="${b.startDate||''}"></div>
+        <div class="field"><label>End Date</label><input id="eb-enddate" type="date" value="${b.endDate||''}"></div>
+        <div class="field"><label>Number of Sessions</label><input id="eb-sessions" type="number" min="1" value="${b.sessions}"></div>
+        <div class="field"><label>Number of Tests</label><input id="eb-tests" type="number" min="1" value="${b.tests}"></div>
+        <div class="btn-row">
+          <button class="btn" style="flex:1;" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-amber" style="flex:1;" onclick="saveEditBatch('${batchId}')">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveEditBatch(batchId){
+  const name = document.getElementById('eb-name').value.trim();
+  const startDate = document.getElementById('eb-startdate').value;
+  const endDate = document.getElementById('eb-enddate').value;
+  const sessions = parseInt(document.getElementById('eb-sessions').value) || 1;
+  const tests = parseInt(document.getElementById('eb-tests').value) || 1;
+  if(!name){ toast('Please enter a batch name'); return; }
+  const batches = await loadBatches();
+  const b = batches.find(x=>x.id===batchId);
+  if(!b) return;
+  b.name = name; b.startDate = startDate; b.endDate = endDate; b.sessions = sessions; b.tests = tests;
+  await saveBatches(batches);
+  await logNote(batchId, b.name, 'batch', `Batch details updated`);
+  closeModal();
+  toast('Batch updated');
+  await viewBatches(document.getElementById('content'));
+}
+
 async function createBatch(nextNum){
   const name = document.getElementById('nb-name').value.trim();
   const date = document.getElementById('nb-date').value;
+  const endDate = document.getElementById('nb-enddate').value;
   const sessions = parseInt(document.getElementById('nb-sessions').value) || 4;
   const tests = parseInt(document.getElementById('nb-tests').value) || 3;
   if(!name){ toast('Please enter a batch name'); return; }
   const batches = await loadBatches();
   const batch = {
-    id: uid('b'), name, startDate: date, sessions, tests,
+    id: uid('b'), name, startDate: date, endDate, sessions, tests,
     status: 'active', archived: false, code: genCode(6), studentCount: 0, createdAt: new Date().toISOString()
   };
   batches.unshift(batch);
@@ -1289,8 +1449,65 @@ async function renderRegBody(){
         <div class="field"><label>Team / Leader</label><input id="ar-leader"></div>
       </div>
       <button class="btn btn-amber" onclick="adminAddStudent()">+ Add Member</button>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 style="margin-top:0;">Bulk Add from Google Form / Sheet</h3>
+      <p style="color:var(--muted);font-size:.82rem;margin-top:-4px;">Already collected registrations elsewhere (like a Google Form)? Open the response sheet, select the columns for <b>Name, Phone, Email, State, Team/Leader</b> (in that order), copy, and paste the rows below — one person per line. All of them get added and approved straight away.</p>
+      <textarea id="bulk-add-text" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" placeholder="John Doe	0123456789	john@example.com	Selangor	Karboo
+Jane Lee	0198765432	jane@example.com	Johor	JK Lim"></textarea>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-amber" onclick="bulkAddStudents()">+ Add All</button>
+      </div>
+      <div id="bulk-add-result" style="margin-top:10px;font-size:.85rem;"></div>
     </div>` : ''}
   `;
+}
+
+async function bulkAddStudents(){
+  const raw = document.getElementById('bulk-add-text').value;
+  const resultEl = document.getElementById('bulk-add-result');
+  const lines = raw.split('\n').map(l=>l.trim()).filter(l=>l.length);
+  if(lines.length===0){ toast('Paste some rows first'); return; }
+
+  const data = await loadBatchData(S.currentBatchId);
+  const existingPhones = new Set(data.students.map(s=>s.phone.replace(/\s/g,'')));
+  let added = 0, skipped = 0;
+  const addedNames = [];
+
+  for(const line of lines){
+    const cols = line.includes('\t') ? line.split('\t') : line.split(',');
+    const name = (cols[0]||'').trim();
+    const phone = (cols[1]||'').trim();
+    const email = (cols[2]||'').trim();
+    const state = (cols[3]||'').trim();
+    const leader = (cols[4]||'').trim();
+
+    // Skip an obvious header row
+    if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) continue;
+    if(!name || !phone){ skipped++; continue; }
+    const normPhone = phone.replace(/\s/g,'');
+    if(existingPhones.has(normPhone)){ skipped++; continue; }
+
+    data.students.push({
+      id: uid('s'), name, phone, email, agentId: state, leader, notes:'',
+      status:'approved', password: genCode(6), accessToken: uid('mtok'),
+      registeredAt: new Date().toISOString(), approvedAt: new Date().toISOString()
+    });
+    existingPhones.add(normPhone);
+    addedNames.push(name);
+    added++;
+  }
+
+  await saveBatchData(S.currentBatchId, data);
+  await recalcStudentCount(S.currentBatchId);
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(added>0) await logNote(S.currentBatchId, batch.name, 'register', `Bulk-added ${added} member(s) from pasted sheet`);
+
+  resultEl.innerHTML = `<b>${added}</b> added${skipped>0?`, <b>${skipped}</b> skipped (missing name/phone or already registered)`:''}.` +
+    (addedNames.length ? `<br><span style="color:var(--muted);">${addedNames.map(escapeHtml).join(', ')}</span>` : '');
+  document.getElementById('bulk-add-text').value = '';
+  toast(`${added} member(s) added`);
+  await renderRegBody();
 }
 
 function renderPendingTable(pending){
@@ -1469,7 +1686,7 @@ async function adminAddStudent(){
   if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){ toast('This phone number is already registered'); return; }
   const newStudent = {
     id: uid('s'), name, phone, email, agentId, leader, notes:'',
-    status:'approved', password: genCode(6),
+    status:'approved', password: genCode(6), accessToken: uid('mtok'),
     registeredAt: new Date().toISOString(), approvedAt: new Date().toISOString()
   };
   data.students.push(newStudent);
@@ -1489,7 +1706,7 @@ async function removeStudent(studentId){
   await saveBatchData(S.currentBatchId, data);
   await recalcStudentCount(S.currentBatchId);
   toast('Removed');
-  await renderRegBody();
+  if(document.getElementById('reg-body')) await renderRegBody();
 }
 
 /* ------------------------------------------------------------
@@ -2190,16 +2407,16 @@ async function renderRankingBody(){
             <tr>
               <td><b>${i+1}</b></td>
               <td>${escapeHtml(row.student.name)}</td>
-              <td>${row.apptCount} × 2 = <b>${row.apptScore}</b></td>
-              <td>${row.recruitCount} × 3 = <b>${row.recruitScore}</b></td>
-              <td>${row.attendanceCount} × 1 = <b>${row.attendanceScore}</b></td>
+              <td><b>${row.apptScore}</b></td>
+              <td><b>${row.recruitScore}</b></td>
+              <td><b>${row.attendanceScore}</b></td>
               <td>
                 <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.readingCount}" onblur="updateRankingField('${row.student.id}','readingCount',this.value)">
-                × 2 = <b>${row.readingScore}</b>
+                <b>${row.readingScore}</b>
               </td>
               <td>
                 <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.socialCount}" onblur="updateRankingField('${row.student.id}','socialCount',this.value)">
-                × 2 = <b>${row.socialScore}</b>
+                <b>${row.socialScore}</b>
               </td>
               <td>
                 <input type="number" min="0" max="10" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.presentation}" onblur="updateRankingField('${row.student.id}','presentation',this.value)">
@@ -2210,7 +2427,7 @@ async function renderRankingBody(){
                   <input type="number" min="0" max="3" title="Leads /3" style="width:42px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesLeads}" onblur="updateRankingField('${row.student.id}','salesLeads',this.value)">
                   <input type="number" min="0" max="4" title="Presentation /4" style="width:42px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesPresentation}" onblur="updateRankingField('${row.student.id}','salesPresentation',this.value)">
                 </div>
-                <div style="font-size:.72rem;color:var(--muted);margin-top:2px;">= ${row.salesScore}/10</div>
+                <div style="font-size:.8rem;margin-top:2px;"><b>${row.salesScore}</b></div>
               </td>
               <td>
                 <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)">
@@ -2220,7 +2437,7 @@ async function renderRankingBody(){
         </tbody>
       </table>`}
     </div>
-    <p style="color:var(--muted);font-size:.78rem;margin-top:10px;">Appointment, Recruitment and Attendance scores are counted automatically (Appointment ×2, Recruitment ×3, Attendance ×1 per date present — adjust the weights in code if needed). Reading Habit, Social Media, Presentation, Sales and Homework are entered manually here.</p>
+    <p style="color:var(--muted);font-size:.78rem;margin-top:10px;">Appointment, Recruitment and Attendance scores are counted automatically from the logs. Reading Habit, Social Media, Presentation, Sales and Homework are entered manually here — type a number, the score shown next to it updates automatically.</p>
   `;
 }
 
