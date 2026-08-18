@@ -226,16 +226,16 @@ function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.rando
 // shared dataset (that's the point: Admin and every Member see the same data).
 async function getJSON(key, shared){
   try{
-    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).maybeSingle();
+    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).order('updated_at', { ascending: false }).limit(1);
     if(error) throw error;
-    return data ? data.value : null;
+    return (data && data.length) ? data[0].value : null;
   }catch(e){ console.error('storage get failed', key, e); return null; }
 }
 async function setJSON(key, value, shared){
   try{
     const { error } = await sb.from('app_storage').upsert({ key, value, shared: !!shared, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if(error) throw error;
-  }catch(e){ console.error('storage set failed', key, e); toast('Save failed, please try again'); }
+  }catch(e){ console.error('storage set failed', key, e); toast('Save failed: ' + (e.message || 'unknown error')); }
 }
 async function deleteJSON(key){
   try{ await sb.from('app_storage').delete().eq('key', key); }catch(e){ console.error('storage delete failed', key, e); }
@@ -256,6 +256,9 @@ async function saveBatchPhotos(id, arr){ await setJSON('batch-photos-'+id, arr, 
 
 async function loadBatchMaterials(id){ return (await getJSON('batch-materials-'+id, true)) || { agenda:'', timetable:[] }; }
 async function saveBatchMaterials(id, data){ await setJSON('batch-materials-'+id, data, true); }
+
+async function loadTop3(id){ return (await getJSON('batch-top3-'+id, true)) || { slots: [{name:'',photo:null},{name:'',photo:null},{name:'',photo:null}] }; }
+async function saveTop3(id, data){ await setJSON('batch-top3-'+id, data, true); }
 
 async function loadAppointments(id){ return (await getJSON('batch-appointments-'+id, true)) || []; }
 async function saveAppointments(id, arr){ await setJSON('batch-appointments-'+id, arr, true); }
@@ -1255,6 +1258,7 @@ async function renderMaterialsBody(){
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   const photos = await loadBatchPhotos(S.currentBatchId);
   const mat = await loadBatchMaterials(S.currentBatchId);
+  const top3 = await loadTop3(S.currentBatchId);
   const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
 
   body.innerHTML = `
@@ -1273,6 +1277,29 @@ async function renderMaterialsBody(){
         `).join('')}
       </div>
       ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;margin-top:10px;">No photos yet — upload some from this batch's sessions or events.</p>` : ''}
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
+        ${top3.slots.map((s,i)=>`
+          <div style="text-align:center;">
+            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
+            ${s.photo ? `
+              <div class="photo-thumb" style="aspect-ratio:1;margin-bottom:8px;" onclick="openTop3Modal(${i})">
+                <img src="${s.photo}" alt="top3">
+                <button class="photo-del" onclick="event.stopPropagation();deleteTop3Photo(${i})">✕</button>
+              </div>
+            ` : `
+              <label class="upload-drop" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:.78rem;">
+                📷 Upload
+                <input type="file" accept="image/*" style="display:none;" onchange="handleTop3Upload(${i}, this)">
+              </label>
+            `}
+            <input type="text" value="${escapeHtml(s.name)}" placeholder="Name" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:.82rem;text-align:center;" onblur="updateTop3Name(${i}, this.value)">
+          </div>
+        `).join('')}
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:16px;">
@@ -1363,6 +1390,46 @@ async function saveAgenda(){
   mat.agenda = document.getElementById('mat-agenda').value;
   await saveBatchMaterials(S.currentBatchId, mat);
   toast('Agenda saved');
+}
+
+async function handleTop3Upload(slotIndex, input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  toast('Uploading photo...');
+  const top3 = await loadTop3(S.currentBatchId);
+  try{
+    top3.slots[slotIndex].photo = await resizeImageFile(file, 700);
+  }catch(e){ console.error(e); toast('Upload failed'); return; }
+  await saveTop3(S.currentBatchId, top3);
+  input.value = '';
+  toast('Photo saved');
+  await renderMaterialsBody();
+}
+
+async function deleteTop3Photo(slotIndex){
+  if(!confirm('Delete this photo?')) return;
+  const top3 = await loadTop3(S.currentBatchId);
+  top3.slots[slotIndex].photo = null;
+  await saveTop3(S.currentBatchId, top3);
+  toast('Photo deleted');
+  await renderMaterialsBody();
+}
+
+async function updateTop3Name(slotIndex, value){
+  const top3 = await loadTop3(S.currentBatchId);
+  top3.slots[slotIndex].name = value;
+  await saveTop3(S.currentBatchId, top3);
+}
+
+async function openTop3Modal(slotIndex){
+  const top3 = await loadTop3(S.currentBatchId);
+  const s = top3.slots[slotIndex];
+  if(!s || !s.photo) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="img-modal"><img src="${s.photo}" alt="top3 photo"></div>
+    </div>
+  `;
 }
 
 async function updateTimetableField(session, field, value){
@@ -2212,6 +2279,7 @@ async function viewStuMaterials(c){
   const batch = (await loadBatches()).find(b=>b.id===S.student.batchId);
   const photos = await loadBatchPhotos(S.student.batchId);
   const mat = await loadBatchMaterials(S.student.batchId);
+  const top3 = await loadTop3(S.student.batchId);
   const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">Photos & Info</h2><p class="view-desc">${escapeHtml(batch.name)}</p></div></div>
@@ -2225,6 +2293,18 @@ async function viewStuMaterials(c){
       ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;">No photos have been shared yet.</p>` : ''}
     </div>
     <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
+        ${top3.slots.map((s,i)=>`
+          <div style="text-align:center;">
+            <div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">${['🥇 1st','🥈 2nd','🥉 3rd'][i]}</div>
+            ${s.photo ? `<div class="photo-thumb" style="aspect-ratio:1;margin-bottom:6px;" onclick="openTop3ModalStu(${i})"><img src="${s.photo}" alt="top3"></div>` : `<div style="aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.78rem;margin-bottom:6px;">No photo</div>`}
+            <div style="font-size:.82rem;font-weight:600;">${s.name ? escapeHtml(s.name) : '-'}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Agenda</h3>
       <p style="white-space:pre-wrap;font-size:.9rem;">${mat.agenda ? escapeHtml(mat.agenda) : '<span style="color:var(--muted);">No agenda posted yet.</span>'}</p>
     </div>
@@ -2233,6 +2313,17 @@ async function viewStuMaterials(c){
       <table><thead><tr><th>Session</th><th>Date</th><th>Time</th><th>Topic</th></tr></thead><tbody>
         ${rows.map(r=>`<tr><td>#${r.session}</td><td>${r.date||'-'}</td><td>${r.time||'-'}</td><td>${escapeHtml(r.topic||'-')}</td></tr>`).join('')}
       </tbody></table>
+    </div>
+  `;
+}
+
+async function openTop3ModalStu(slotIndex){
+  const top3 = await loadTop3(S.student.batchId);
+  const s = top3.slots[slotIndex];
+  if(!s || !s.photo) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="img-modal"><img src="${s.photo}" alt="top3 photo"></div>
     </div>
   `;
 }
