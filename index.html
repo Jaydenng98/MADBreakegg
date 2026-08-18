@@ -67,8 +67,10 @@
   .nav-drawer.open{transform:translateX(0);}
 
   .sidebar-brand{font-weight:900;font-size:1.15rem;padding:0 8px 18px;border-bottom:1px dashed rgba(245,243,234,.25);margin-bottom:14px;}
-  .nav-group-label{font-size:.72rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--chalk-dim);padding:14px 12px 6px;}
-  .nav-group-label:first-of-type{padding-top:0;}
+  .nav-group-label{font-size:.72rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--chalk-dim);padding:12px 10px;margin-top:4px;background:none;border:none;width:100%;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-radius:6px;}
+  .nav-group-label:hover{background:rgba(245,243,234,.08);color:var(--chalk);}
+  .nav-group-chevron{font-size:.7rem;opacity:.7;}
+  .nav-group-label:first-of-type{margin-top:0;}
   .sidebar-brand span{display:block;font-family:'Caveat',cursive;font-size:1rem;color:var(--amber);font-weight:700;}
   .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-bottom:3px;background:none;border:none;color:var(--chalk-dim);text-align:left;width:100%;font-size:.92rem;font-weight:500;}
   .nav-item:hover{background:rgba(245,243,234,.08);color:var(--chalk);}
@@ -698,7 +700,6 @@ async function showPublicQuickAccess(batchId){
         <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Shared view — like an open Google Sheet, anyone with this link can see everything below, no login needed.</p>
         <div class="tab-strip" id="pbv-tabs">
           <button onclick="pbvSetTab('${batchId}','ranking')">Ranking Board</button>
-          <button onclick="pbvSetTab('${batchId}','materials')">Photos & Info</button>
           <button onclick="pbvSetTab('${batchId}','appointments')">Appointments</button>
           <button onclick="pbvSetTab('${batchId}','recruitment')">Recruitment</button>
           <button onclick="pbvSetTab('${batchId}','attendance')">Attendance</button>
@@ -718,7 +719,7 @@ function pbvSetTab(batchId, tab){
 
 async function renderPbvBody(batchId){
   const body = document.getElementById('pbv-body');
-  const keys = ['ranking','materials','appointments','recruitment','attendance'];
+  const keys = ['ranking','appointments','recruitment','attendance'];
   document.querySelectorAll('#pbv-tabs button').forEach((b,i)=>{
     b.classList.toggle('active', keys[i]===S.pbvTab);
   });
@@ -745,29 +746,6 @@ async function renderPbvBody(batchId){
         <thead><tr><th>Rank</th><th>Name</th><th>Total</th></tr></thead>
         <tbody>${rows.map((r,i)=>`<tr><td><b>${i+1}</b></td><td>${escapeHtml(r.student.name)}</td><td><b>${r.total}</b></td></tr>`).join('')}</tbody>
       </table>`}
-      </div>
-    `;
-    return;
-  }
-
-  if(S.pbvTab === 'materials'){
-    const photos = await loadBatchPhotos(batchId);
-    const mat = await loadBatchMaterials(batchId);
-    const batch = S.batches.find(b=>b.id===batchId);
-    const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
-    body.innerHTML = `
-      <h3 style="margin:0 0 8px;font-size:1rem;">Photos</h3>
-      <div class="photo-grid" style="margin-bottom:18px;">
-        ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;">No photos yet.</p>` :
-          photos.map(p=>`<div class="photo-thumb"><img src="${p.dataUrl}" alt="batch photo"></div>`).join('')}
-      </div>
-      <h3 style="margin:0 0 8px;font-size:1rem;">Agenda</h3>
-      <p style="white-space:pre-wrap;font-size:.88rem;margin-bottom:18px;">${mat.agenda ? escapeHtml(mat.agenda) : '<span style="color:var(--muted);">No agenda posted yet.</span>'}</p>
-      <h3 style="margin:0 0 8px;font-size:1rem;">Timetable</h3>
-      <div style="overflow-x:auto;">
-      <table><thead><tr><th>Session</th><th>Date</th><th>Time</th><th>Topic</th></tr></thead><tbody>
-        ${rows.map(r=>`<tr><td>#${r.session}</td><td>${r.date||'-'}</td><td>${r.time||'-'}</td><td>${escapeHtml(r.topic||'-')}</td></tr>`).join('')}
-      </tbody></table>
       </div>
     `;
     return;
@@ -964,6 +942,7 @@ const ADMIN_NAV_GROUPS = [
 const ADMIN_NAV = ADMIN_NAV_GROUPS.flatMap(g=>g.items);
 const STUDENT_NAV = [
   ['stu-home','My Batch'],
+  ['stu-materials','Photos & Info'],
   ['stu-appointments','Appointments'],
   ['stu-recruitment','Recruitment'],
   ['stu-attendance','Attendance'],
@@ -972,11 +951,20 @@ const STUDENT_NAV = [
 
 function renderSidebar(){
   const who = S.isAdmin ? 'Admin' : (S.student ? S.student.name : '');
+  if(!S.navExpandedGroup){
+    const activeGroup = ADMIN_NAV_GROUPS.find(g=>g.items.some(([key])=>key===S.view));
+    S.navExpandedGroup = activeGroup ? activeGroup.label : ADMIN_NAV_GROUPS[0].label;
+  }
   const navHtml = S.isAdmin
-    ? ADMIN_NAV_GROUPS.map(g=>`
-        <div class="nav-group-label">${g.label}</div>
-        ${g.items.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('')}
-      `).join('')
+    ? ADMIN_NAV_GROUPS.map(g=>{
+        const open = S.navExpandedGroup === g.label;
+        return `
+        <button class="nav-group-label" onclick="toggleNavGroup('${g.label}')">
+          <span>${g.label}</span><span class="nav-group-chevron">${open?'▾':'▸'}</span>
+        </button>
+        ${open ? g.items.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('') : ''}
+      `;
+      }).join('')
     : STUDENT_NAV.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('');
   document.getElementById('sidebar').innerHTML = `
     <div class="topbar">
@@ -993,6 +981,11 @@ function renderSidebar(){
       <button class="logout-btn" onclick="logout()">Log Out</button>
     </div>
   `;
+}
+
+function toggleNavGroup(label){
+  S.navExpandedGroup = (S.navExpandedGroup === label) ? null : label;
+  renderSidebar();
 }
 
 function toggleNavMenu(){ S.navOpen = !S.navOpen; renderSidebar(); }
@@ -1034,6 +1027,7 @@ async function renderView(){
       else if(S.view==='settings') await viewSettings(c);
     } else {
       if(S.view==='stu-home') await viewStuHome(c);
+      else if(S.view==='stu-materials') await viewStuMaterials(c);
       else if(S.view==='stu-attendance') await viewStuAttendance(c);
       else if(S.view==='stu-appointments') await viewStuAppointments(c);
       else if(S.view==='stu-recruitment') await viewStuRecruitment(c);
@@ -1728,27 +1722,52 @@ async function removeStudent(studentId){
 ------------------------------------------------------------ */
 async function viewMaterials(c){
   S.batches = await loadBatches();
-  if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
+  S.materialsOpenBatchId = null;
   c.innerHTML = `
     <div class="view-head">
-      <div><h2 class="view-title">Photos & Info</h2><p class="view-desc">Batch photos, agenda and timetable</p></div>
-      ${batchSelectHtml(S.currentBatchId, 'changeMaterialsBatch')}
+      <div><h2 class="view-title">Photos & Info</h2><p class="view-desc">Pick a batch to open its files — photos, agenda and timetable</p></div>
     </div>
     <div id="materials-body"></div>
   `;
   await renderMaterialsBody();
 }
-async function changeMaterialsBatch(id){ S.currentBatchId = id; await renderMaterialsBody(); }
+
+function openMaterialsBatch(id){ S.materialsOpenBatchId = id; renderMaterialsBody(); }
+function closeMaterialsBatch(){ S.materialsOpenBatchId = null; renderMaterialsBody(); }
 
 async function renderMaterialsBody(){
   const body = document.getElementById('materials-body');
-  if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🗂️</div>Please select a batch first.</div>`; return; }
+
+  if(!S.materialsOpenBatchId){
+    if(S.batches.length===0){
+      body.innerHTML = `<div class="empty-state"><div class="big">🗂️</div>No batches yet.</div>`;
+      return;
+    }
+    body.innerHTML = `
+      <div class="batch-grid">
+        ${S.batches.map(b=>`
+          <div class="batch-card" style="cursor:pointer;text-align:center;padding:30px 18px;" onclick="openMaterialsBatch('${b.id}')">
+            <div style="font-size:2.4rem;margin-bottom:10px;">🗂️</div>
+            <div class="batch-name" style="margin:0;">${escapeHtml(b.name)}</div>
+            <div class="batch-meta" style="margin-top:4px;">${fmtDateRange(b.startDate, b.endDate)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  S.currentBatchId = S.materialsOpenBatchId;
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(!batch){ S.materialsOpenBatchId = null; await renderMaterialsBody(); return; }
   const photos = await loadBatchPhotos(S.currentBatchId);
   const mat = await loadBatchMaterials(S.currentBatchId);
   const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
 
   body.innerHTML = `
+    <button class="btn btn-sm" style="margin-bottom:14px;" onclick="closeMaterialsBatch()">← All Batches</button>
+    <h3 style="margin:0 0 14px;">🗂️ ${escapeHtml(batch.name)}</h3>
+
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Batch Photos</h3>
       <label class="upload-drop">
@@ -2336,7 +2355,7 @@ async function viewRanking(c){
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
-      <div><h2 class="view-title">Ranking Board</h2><p class="view-desc">Appointment ×2 · Recruitment ×3 · Reading Habit ×2 · Social Media ×2 · Presentation /10 · Sales /10 · Homework — auto-totalled</p></div>
+      <div><h2 class="view-title">Ranking Board</h2><p class="view-desc">Type each member's score for every category — Total adds them up automatically</p></div>
       ${batchSelectHtml(S.currentBatchId, 'changeRankingBatch')}
     </div>
     <div id="ranking-body"></div>
@@ -2347,31 +2366,21 @@ async function changeRankingBatch(id){ S.currentBatchId = id; await renderRankin
 
 async function computeRankingRows(batchId){
   const data = await loadBatchData(batchId);
-  const appts = await loadAppointments(batchId);
-  const recruits = await loadRecruitment(batchId);
   const ranking = await loadRanking(batchId);
 
   return data.students.filter(s=>(s.status||'approved')==='approved').map(s=>{
     const r = ranking[s.id] || {};
-    const apptCount = appts.filter(a=>a.madeBy===s.id).length;
-    const apptScore = apptCount*2;
-    const recruitCount = recruits.filter(x=>x.madeBy===s.id).length;
-    const recruitScore = recruitCount*3;
-    const readingCount = Number(r.readingCount||0);
-    const readingScore = readingCount*2;
-    const socialCount = Number(r.socialCount||0);
-    const socialScore = socialCount*2;
+    const apptScore = Number(r.appt||0);
+    const recruitScore = Number(r.recruit||0);
+    const attendanceScore = Number(r.attendance||0);
+    const readingScore = Number(r.reading||0);
+    const socialScore = Number(r.social||0);
     const presentation = Number(r.presentation||0);
-    const salesCalling = Number(r.salesCalling||0);
-    const salesLeads = Number(r.salesLeads||0);
-    const salesPresentation = Number(r.salesPresentation||0);
-    const salesScore = salesCalling+salesLeads+salesPresentation;
+    const salesScore = Number(r.sales||0);
     const homework = Number(r.homework||0);
     const activityScore = readingScore+socialScore+salesScore+homework;
-    const attendanceCount = data.attendanceDates.filter(ds=>data.attendance[ds] && data.attendance[ds][s.id]).length;
-    const attendanceScore = attendanceCount*1;
-    const total = apptScore+recruitScore+attendanceScore+activityScore+presentation;
-    return { student:s, apptCount, apptScore, recruitCount, recruitScore, readingCount, readingScore, socialCount, socialScore, presentation, salesCalling, salesLeads, salesPresentation, salesScore, homework, activityScore, attendanceCount, attendanceScore, total };
+    const total = apptScore+recruitScore+attendanceScore+readingScore+socialScore+presentation+salesScore+homework;
+    return { student:s, apptScore, recruitScore, attendanceScore, readingScore, socialScore, presentation, salesScore, homework, activityScore, total };
   }).sort((a,b)=>b.total-a.total);
 }
 
@@ -2406,13 +2415,12 @@ async function renderRankingBody(){
     </div>
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
-      <table style="min-width:1100px;">
+      <table style="min-width:1000px;">
         <thead><tr>
           <th>Rank</th><th>Name</th>
           <th>Appointment</th><th>Recruitment</th><th>Attendance</th>
           <th>Reading Habit</th><th>Social Media</th>
-          <th>Presentation<br><span style="font-weight:400;">/10</span></th>
-          <th>Sales<br><span style="font-weight:400;">Call/Lead/Pres</span></th>
+          <th>Presentation</th><th>Sales</th>
           <th>Homework</th><th>Total</th>
         </tr></thead>
         <tbody>
@@ -2420,37 +2428,20 @@ async function renderRankingBody(){
             <tr>
               <td><b>${i+1}</b></td>
               <td>${escapeHtml(row.student.name)}</td>
-              <td><b>${row.apptScore}</b></td>
-              <td><b>${row.recruitScore}</b></td>
-              <td><b>${row.attendanceScore}</b></td>
-              <td>
-                <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.readingCount}" onblur="updateRankingField('${row.student.id}','readingCount',this.value)">
-                <b>${row.readingScore}</b>
-              </td>
-              <td>
-                <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.socialCount}" onblur="updateRankingField('${row.student.id}','socialCount',this.value)">
-                <b>${row.socialScore}</b>
-              </td>
-              <td>
-                <input type="number" min="0" max="10" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.presentation}" onblur="updateRankingField('${row.student.id}','presentation',this.value)">
-              </td>
-              <td>
-                <div style="display:flex;gap:4px;">
-                  <input type="number" min="0" max="3" title="Calling /3" style="width:42px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesCalling}" onblur="updateRankingField('${row.student.id}','salesCalling',this.value)">
-                  <input type="number" min="0" max="3" title="Leads /3" style="width:42px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesLeads}" onblur="updateRankingField('${row.student.id}','salesLeads',this.value)">
-                  <input type="number" min="0" max="4" title="Presentation /4" style="width:42px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesPresentation}" onblur="updateRankingField('${row.student.id}','salesPresentation',this.value)">
-                </div>
-                <div style="font-size:.8rem;margin-top:2px;"><b>${row.salesScore}</b></div>
-              </td>
-              <td>
-                <input type="number" min="0" style="width:56px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)">
-              </td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.apptScore}" onblur="updateRankingField('${row.student.id}','appt',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.recruitScore}" onblur="updateRankingField('${row.student.id}','recruit',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.attendanceScore}" onblur="updateRankingField('${row.student.id}','attendance',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.readingScore}" onblur="updateRankingField('${row.student.id}','reading',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.socialScore}" onblur="updateRankingField('${row.student.id}','social',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.presentation}" onblur="updateRankingField('${row.student.id}','presentation',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.salesScore}" onblur="updateRankingField('${row.student.id}','sales',this.value)"></td>
+              <td><input type="number" min="0" style="width:64px;padding:5px;border:1px solid var(--line);border-radius:6px;" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)"></td>
               <td><b style="font-size:1.1rem;">${row.total}</b></td>
             </tr>`).join('')}
         </tbody>
       </table>`}
     </div>
-    <p style="color:var(--muted);font-size:.78rem;margin-top:10px;">Appointment, Recruitment and Attendance scores are counted automatically from the logs. Reading Habit, Social Media, Presentation, Sales and Homework are entered manually here — type a number, the score shown next to it updates automatically.</p>
+    <p style="color:var(--muted);font-size:.78rem;margin-top:10px;">Every column here is entered directly — type a number and Total updates automatically.</p>
   `;
 }
 
@@ -2637,20 +2628,18 @@ async function exportExcel(){
   const recruitRows = recruits.map(r=>({ 'Made By': studentNameById(data,r.madeBy), 'Recruit Name': r.clientName, Contact: r.contact, 'Leads Origin': r.origin, Closer: r.closer, Date: fmtDate(r.date) }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recruitRows.length?recruitRows:[{'Made By':''}]), 'Recruitment');
 
-  const rankRows = approvedStudents.map(s=>{
-    const r = ranking[s.id] || {};
-    const apptCount = appts.filter(a=>a.madeBy===s.id).length;
-    const recruitCount = recruits.filter(x=>x.madeBy===s.id).length;
-    const attendanceScore = data.attendanceDates.filter(ds=>data.attendance[ds] && data.attendance[ds][s.id]).length;
-    const readingScore = Number(r.readingCount||0)*2;
-    const socialScore = Number(r.socialCount||0)*2;
-    const presentation = Number(r.presentation||0);
-    const salesScore = Number(r.salesCalling||0)+Number(r.salesLeads||0)+Number(r.salesPresentation||0);
-    const homework = Number(r.homework||0);
-    const activityScore = readingScore+socialScore+salesScore+homework;
-    const total = apptCount*2 + recruitCount*3 + attendanceScore + activityScore + presentation;
-    return { Name:s.name, Appointment: apptCount*2, Recruitment: recruitCount*3, Attendance: attendanceScore, Activity: activityScore, Presentation: presentation, Total: total };
-  }).sort((a,b)=>b.Total-a.Total);
+  const rankRows = (await computeRankingRows(S.currentBatchId)).map(row=>({
+    Name: row.student.name,
+    Appointment: row.apptScore,
+    Recruitment: row.recruitScore,
+    Attendance: row.attendanceScore,
+    'Reading Habit': row.readingScore,
+    'Social Media': row.socialScore,
+    Presentation: row.presentation,
+    Sales: row.salesScore,
+    Homework: row.homework,
+    Total: row.total
+  }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rankRows.length?rankRows:[{'Name':''}]), 'Ranking Board');
 
   XLSX.writeFile(wb, batch.name.replace(/[^\w\u4e00-\u9fa5]/g,'_') + '__Report.xlsx');
