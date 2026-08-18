@@ -421,15 +421,15 @@ function renderLoginForm(){
   const area = document.getElementById('login-form-area');
   if(S.loginRole === 'admin'){
     area.innerHTML = `
-      <div class="field"><label>Admin username</label><input id="admin-user" placeholder="admin"></div>
-      <div class="field"><label>Password</label><input id="admin-pass" type="password" placeholder="Enter password"></div>
+      <div class="field"><label>Admin username</label><input id="admin-user" placeholder="admin" onkeydown="if(event.key==='Enter') doAdminLogin()"></div>
+      <div class="field"><label>Password</label><input id="admin-pass" type="password" placeholder="Enter password" onkeydown="if(event.key==='Enter') doAdminLogin()"></div>
       <div id="admin-err" class="err-msg" style="display:none;"></div>
       <button class="btn-primary" onclick="doAdminLogin()">Sign in to Admin</button>
     `;
   } else {
     area.innerHTML = `
-      <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number"></div>
-      <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval"></div>
+      <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
+      <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
       <div id="mem-err" class="err-msg" style="display:none;"></div>
       <button class="btn-primary" onclick="doMemberLogin()">Sign In</button>
       <p style="text-align:center;color:var(--muted);font-size:.8rem;margin:12px 0;">— OR —</p>
@@ -446,7 +446,7 @@ function getActiveFormArea(){
 function showGuestLogin(batchId){
   const area = getActiveFormArea();
   area.innerHTML = `
-    <div class="field"><label>Phone Number</label><input id="guest-phone" placeholder="Your registered phone number"></div>
+    <div class="field"><label>Phone Number</label><input id="guest-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doGuestLogin()"></div>
     <div id="guest-err" class="err-msg" style="display:none;"></div>
     <button class="btn-primary" onclick="doGuestLogin()">Continue as Guest</button>
     <p style="font-size:.8rem;color:var(--muted);margin-top:10px;">You must already be an approved member for this to work — this just skips the password step. If you haven't been approved yet, use the registration link/QR your admin shared instead.</p>
@@ -566,6 +566,81 @@ function buildQuickAccessLink(batch){
   return location.origin + location.pathname + '?batch=' + batch.code + '&mode=quick';
 }
 
+function buildAttendanceLink(batch, date, code){
+  return location.origin + location.pathname + '?batch=' + batch.code + '&mode=attendance&date=' + date + '&acode=' + code;
+}
+
+async function showAttendanceLinkModal(date){
+  const data = await loadBatchData(S.currentBatchId);
+  const code = data.checkinCodes[date];
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(!code || !batch) return;
+  const link = buildAttendanceLink(batch, date, code);
+  showRegQrModal(
+    link,
+    `Attendance Link — ${dateLabel(date)}`,
+    `Send this to your members for ${dateLabel(date)} only. They open it, tap their own name once, and they're marked present — no app login, no code typing, and they can only mark themselves.`
+  );
+}
+
+async function showPublicAttendance(batchId, date, code){
+  const batch = S.batches.find(b=>b.id===batchId);
+  const data = await loadBatchData(batchId);
+  if(!data.checkinCodes[date] || data.checkinCodes[date].toUpperCase() !== (code||'').toUpperCase()){
+    document.getElementById('login-screen').innerHTML = `
+      <div class="login-card" style="text-align:center;">
+        <div style="font-size:2.4rem;margin-bottom:6px;">⚠️</div>
+        <h1 class="login-title">Link Expired</h1>
+        <p style="color:var(--muted);font-size:.9rem;">This attendance link is no longer valid — ask your admin for a fresh one.</p>
+      </div>
+    `;
+    return;
+  }
+  const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('login-screen').innerHTML = `
+    <div class="login-card">
+      <p class="login-eyebrow">MAD Breakegg Program</p>
+      <h1 class="login-title">${escapeHtml(batch.name)}</h1>
+      <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Attendance for ${dateLabel(date)} — tap your own name to mark yourself present</p>
+      <div id="pa-body"></div>
+    </div>
+  `;
+  renderPublicAttendanceList(batchId, date, approved, data);
+}
+
+function renderPublicAttendanceList(batchId, date, approved, data){
+  const body = document.getElementById('pa-body');
+  if(approved.length===0){
+    body.innerHTML = `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>`;
+    return;
+  }
+  body.innerHTML = approved.map(s=>{
+    const present = !!(data.attendance[date] && data.attendance[date][s.id]);
+    return `<button class="btn" style="width:100%;margin-bottom:8px;text-align:left;${present?'opacity:.55;':''}" ${present?'disabled':''} onclick="submitPublicAttendance('${batchId}','${date}','${s.id}')">
+      ${escapeHtml(s.name)}${present?' ✓ Already marked':''}
+    </button>`;
+  }).join('');
+}
+
+async function submitPublicAttendance(batchId, date, studentId){
+  const data = await loadBatchData(batchId);
+  if(!data.attendance[date]) data.attendance[date] = {};
+  if(data.attendance[date][studentId]){ toast('Already marked present'); return; }
+  data.attendance[date][studentId] = true;
+  await saveBatchData(batchId, data);
+  const batches = await loadBatches();
+  const batch = batches.find(b=>b.id===batchId);
+  const student = data.students.find(s=>s.id===studentId);
+  await logNote(batchId, batch?batch.name:'', 'attendance', `${student?student.name:'Someone'} marked present via attendance link (${dateLabel(date)})`);
+  document.getElementById('login-screen').innerHTML = `
+    <div class="login-card" style="text-align:center;">
+      <div style="font-size:2.4rem;margin-bottom:6px;">✅</div>
+      <h1 class="login-title">Marked Present</h1>
+      <p style="color:var(--muted);font-size:.9rem;">Thanks, ${escapeHtml(student?student.name:'')}! You're marked present for ${dateLabel(date)}.</p>
+    </div>
+  `;
+}
+
 async function showPublicRegister(batchId){
   const batch = S.batches.find(b=>b.id===batchId);
   document.getElementById('login-screen').innerHTML = `
@@ -592,17 +667,144 @@ async function showPublicAccess(batchId){
 
 async function showPublicQuickAccess(batchId){
   const batch = S.batches.find(b=>b.id===batchId);
-  const data = await loadBatchData(batchId);
-  const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
   document.getElementById('login-screen').innerHTML = `
-    <div class="login-card">
-      <p class="login-eyebrow">MAD Breakegg Program</p>
-      <h1 class="login-title">${escapeHtml(batch.name)}</h1>
-      <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Tap your name to go in</p>
-      ${approved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` :
-        approved.map(s=>`<button class="btn" style="width:100%;margin-bottom:8px;" onclick="enterAsMember('${batchId}','${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')">${escapeHtml(s.name)}</button>`).join('')}
+    <div style="width:100%;max-width:960px;">
+      <div class="login-card" style="max-width:none;">
+        <p class="login-eyebrow">MAD Breakegg Program</p>
+        <h1 class="login-title" id="pbv-title">${escapeHtml(batch.name)}</h1>
+        <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Shared view — like an open Google Sheet, anyone with this link can see everything below, no login needed.</p>
+        <div class="tab-strip" id="pbv-tabs">
+          <button onclick="pbvSetTab('${batchId}','ranking')">Ranking Board</button>
+          <button onclick="pbvSetTab('${batchId}','materials')">Photos & Info</button>
+          <button onclick="pbvSetTab('${batchId}','appointments')">Appointments</button>
+          <button onclick="pbvSetTab('${batchId}','recruitment')">Recruitment</button>
+          <button onclick="pbvSetTab('${batchId}','attendance')">Attendance</button>
+        </div>
+        <div id="pbv-body"></div>
+      </div>
     </div>
   `;
+  S.pbvTab = 'ranking';
+  await renderPbvBody(batchId);
+}
+
+function pbvSetTab(batchId, tab){
+  S.pbvTab = tab;
+  renderPbvBody(batchId);
+}
+
+async function renderPbvBody(batchId){
+  const body = document.getElementById('pbv-body');
+  const keys = ['ranking','materials','appointments','recruitment','attendance'];
+  document.querySelectorAll('#pbv-tabs button').forEach((b,i)=>{
+    b.classList.toggle('active', keys[i]===S.pbvTab);
+  });
+
+  if(S.pbvTab === 'ranking'){
+    const rows = await computeRankingRows(batchId);
+    body.innerHTML = `
+      <div style="overflow-x:auto;">
+      ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` : `
+      <table>
+        <thead><tr><th>Rank</th><th>Name</th><th>Total</th></tr></thead>
+        <tbody>${rows.map((r,i)=>`<tr><td><b>${i+1}</b></td><td>${escapeHtml(r.student.name)}</td><td><b>${r.total}</b></td></tr>`).join('')}</tbody>
+      </table>`}
+      </div>
+    `;
+    return;
+  }
+
+  if(S.pbvTab === 'materials'){
+    const photos = await loadBatchPhotos(batchId);
+    const mat = await loadBatchMaterials(batchId);
+    const batch = S.batches.find(b=>b.id===batchId);
+    const rows = Array.from({length: batch.sessions}, (_,i)=>i+1).map(n => mat.timetable.find(r=>r.session===n) || { session:n, date:'', time:'', topic:'' });
+    body.innerHTML = `
+      <h3 style="margin:0 0 8px;font-size:1rem;">Photos</h3>
+      <div class="photo-grid" style="margin-bottom:18px;">
+        ${photos.length===0 ? `<p style="color:var(--muted);font-size:.82rem;">No photos yet.</p>` :
+          photos.map(p=>`<div class="photo-thumb"><img src="${p.dataUrl}" alt="batch photo"></div>`).join('')}
+      </div>
+      <h3 style="margin:0 0 8px;font-size:1rem;">Agenda</h3>
+      <p style="white-space:pre-wrap;font-size:.88rem;margin-bottom:18px;">${mat.agenda ? escapeHtml(mat.agenda) : '<span style="color:var(--muted);">No agenda posted yet.</span>'}</p>
+      <h3 style="margin:0 0 8px;font-size:1rem;">Timetable</h3>
+      <div style="overflow-x:auto;">
+      <table><thead><tr><th>Session</th><th>Date</th><th>Time</th><th>Topic</th></tr></thead><tbody>
+        ${rows.map(r=>`<tr><td>#${r.session}</td><td>${r.date||'-'}</td><td>${r.time||'-'}</td><td>${escapeHtml(r.topic||'-')}</td></tr>`).join('')}
+      </tbody></table>
+      </div>
+    `;
+    return;
+  }
+
+  if(S.pbvTab === 'appointments'){
+    const data = await loadBatchData(batchId);
+    const list = await loadAppointments(batchId);
+    body.innerHTML = `
+      <div style="overflow-x:auto;">
+      ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No appointments logged yet.</p>` : `
+      <table><thead><tr><th>Made By</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
+      <tbody>
+        ${list.map(a=>`
+          <tr>
+            <td>${escapeHtml(studentNameById(data, a.madeBy))}</td>
+            <td>${escapeHtml(a.clientName)}</td>
+            <td>${escapeHtml(a.contact)}</td>
+            <td>${escapeHtml(a.origin)}</td>
+            <td>${escapeHtml(a.closer)}</td>
+            <td>${fmtDate(a.date)}</td>
+          </tr>`).join('')}
+      </tbody></table>`}
+      </div>
+    `;
+    return;
+  }
+
+  if(S.pbvTab === 'recruitment'){
+    const data = await loadBatchData(batchId);
+    const list = await loadRecruitment(batchId);
+    body.innerHTML = `
+      <div style="overflow-x:auto;">
+      ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No recruits logged yet.</p>` : `
+      <table><thead><tr><th>Made By</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
+      <tbody>
+        ${list.map(r=>`
+          <tr>
+            <td>${escapeHtml(studentNameById(data, r.madeBy))}</td>
+            <td>${escapeHtml(r.clientName)}</td>
+            <td>${escapeHtml(r.contact)}</td>
+            <td>${escapeHtml(r.origin)}</td>
+            <td>${escapeHtml(r.closer)}</td>
+            <td>${fmtDate(r.date)}</td>
+          </tr>`).join('')}
+      </tbody></table>`}
+      </div>
+    `;
+    return;
+  }
+
+  if(S.pbvTab === 'attendance'){
+    const data = await loadBatchData(batchId);
+    const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
+    const dates = data.attendanceDates;
+    body.innerHTML = `
+      <div style="overflow-x:auto;">
+      ${dates.length===0 || approved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">Nothing to show yet.</p>` : `
+      <table><thead><tr><th>Name</th>${dates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${approved.map(s=>`
+          <tr>
+            <td>${escapeHtml(s.name)}</td>
+            ${dates.map(ds=>{
+              const present = !!(data.attendance[ds] && data.attendance[ds][s.id]);
+              return `<td style="text-align:center;">${present?'<span class="tick-yes">✓</span>':'<span class="tick-no">·</span>'}</td>`;
+            }).join('')}
+          </tr>`).join('')}
+      </tbody></table>`}
+      </div>
+    `;
+    return;
+  }
 }
 
 function renderPublicRegForm(batchId){
@@ -611,7 +813,7 @@ function renderPublicRegForm(batchId){
     <div class="field"><label>Name</label><input id="pr-name"></div>
     <div class="field"><label>Phone Number</label><input id="pr-phone"></div>
     <div class="field"><label>Email</label><input id="pr-email" type="email"></div>
-    <div class="field"><label>Agent ID</label><input id="pr-agentid"></div>
+    <div class="field"><label>State</label><select id="pr-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
     <div class="field"><label>Team / Leader</label><input id="pr-leader"></div>
     <div class="field"><label>Notes (optional)</label><input id="pr-notes"></div>
     <div id="pr-err" class="err-msg" style="display:none;"></div>
@@ -624,8 +826,8 @@ function renderPublicRegForm(batchId){
 function renderPublicLoginForm(batchId){
   document.getElementById('pub-title').textContent = 'Sign In';
   document.getElementById('pubreg-form-area').innerHTML = `
-    <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number"></div>
-    <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval"></div>
+    <div class="field"><label>Phone Number</label><input id="mem-phone" placeholder="Your registered phone number" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
+    <div class="field"><label>Password</label><input id="mem-pass" type="password" placeholder="Password given to you after approval" onkeydown="if(event.key==='Enter') doMemberLogin()"></div>
     <div id="mem-err" class="err-msg" style="display:none;"></div>
     <button class="btn-primary" onclick="doMemberLogin()">Sign In</button>
     <p style="text-align:center;color:var(--muted);font-size:.8rem;margin:12px 0;">— OR —</p>
@@ -724,7 +926,7 @@ const STUDENT_NAV = [
   ['stu-home','My Batch'],
   ['stu-appointments','Appointments'],
   ['stu-recruitment','Recruitment'],
-  ['stu-attendance','Check-in'],
+  ['stu-attendance','Attendance'],
   ['stu-ranking','Ranking Board'],
 ];
 
@@ -869,7 +1071,7 @@ async function viewBatches(c){
           </div>
           <div class="btn-row" style="margin-top:8px;">
             <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${link}')">🔗 Registration Link</button>
-            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it, taps their own name from the list, and goes straight in. No password. Only approved members show up in the list.')">⚡ Quick Access Link</button>
+            <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">⚡ Quick Access Link</button>
           </div>
           <div class="btn-row" style="margin-top:8px;">
             <select class="btn btn-sm" style="flex:1;" onchange="changeBatchStatus('${b.id}', this.value)">
@@ -1025,9 +1227,9 @@ async function renderRegBody(){
       <div class="btn-row" style="align-items:center;">
         <input readonly value="${quickLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
         <button class="btn btn-sm" onclick="copyRegLink('${quickLink}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it, taps their own name from the list, and goes straight in. No password. Only approved members show up in the list.')">Show QR</button>
+        <button class="btn btn-sm" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">Show QR</button>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Post this ONE link in the batch group chat — everyone opens the same link, taps their own name, and goes straight in. No phone number, no password.</p>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Post this ONE link in the batch group chat — everyone opens the same link and lands on the shared batch view. They only pick their name when they need to do something personal (Appointment, Recruitment, Check-in, My Score).</p>
     </div>
 
     <div class="card" style="margin-bottom:16px;">
@@ -1054,7 +1256,7 @@ async function renderRegBody(){
         <div class="field"><label>Name</label><input id="ar-name"></div>
         <div class="field"><label>Phone</label><input id="ar-phone"></div>
         <div class="field"><label>Email</label><input id="ar-email" type="email"></div>
-        <div class="field"><label>Agent ID</label><input id="ar-agentid"></div>
+        <div class="field"><label>State</label><select id="ar-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
         <div class="field"><label>Team / Leader</label><input id="ar-leader"></div>
       </div>
       <button class="btn btn-amber" onclick="adminAddStudent()">+ Add Member</button>
@@ -1065,7 +1267,7 @@ async function renderRegBody(){
 function renderPendingTable(pending){
   if(pending.length===0) return `<div class="card"><div class="empty-state">No pending registrations</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Agent ID</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
     <tbody>
       ${pending.map(s=>`
         <tr>
@@ -1085,7 +1287,7 @@ function renderPendingTable(pending){
 function renderApprovedTable(approved){
   if(approved.length===0) return `<div class="card"><div class="empty-state">No approved members yet</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Agent ID</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
     <tbody>
       ${approved.map(s=>`
         <tr>
@@ -1141,7 +1343,10 @@ async function editPendingStudent(studentId){
         <div class="field"><label>Name</label><input id="ep-name" value="${escapeHtml(s.name)}"></div>
         <div class="field"><label>Phone</label><input id="ep-phone" value="${escapeHtml(s.phone)}"></div>
         <div class="field"><label>Email</label><input id="ep-email" value="${escapeHtml(s.email||'')}"></div>
-        <div class="field"><label>Agent ID</label><input id="ep-agentid" value="${escapeHtml(s.agentId||'')}"></div>
+        <div class="field"><label>State</label><select id="ep-agentid">
+          <option value="">-- Select --</option>
+          ${MALAYSIA_STATES.map(st=>`<option ${s.agentId===st?'selected':''}>${st}</option>`).join('')}
+        </select></div>
         <div class="field"><label>Team / Leader</label><input id="ep-leader" value="${escapeHtml(s.leader||'')}"></div>
         <div class="field"><label>Notes</label><input id="ep-notes" value="${escapeHtml(s.notes||'')}"></div>
         <button class="btn btn-amber" style="width:100%;" onclick="saveEditPending('${studentId}')">Save Changes</button>
@@ -1523,8 +1728,11 @@ async function renderAttBody(){
         ${code ? `
           <div class="code-display mono">${code}</div>
           <div id="qrcode" style="margin-top:16px;"></div>
-          <p style="color:var(--muted);font-size:.82rem;margin-top:10px;">Members enter this code under "Member Login → Check-in" to check in. Once deployed to a real domain, this QR code can be scanned directly.</p>
-          <button class="btn btn-sm" style="margin-top:6px;" onclick="regenCode('${d}')">Regenerate Code</button>
+          <p style="color:var(--muted);font-size:.82rem;margin-top:10px;">Send the Attendance Link below to members for ${dateLabel(d)} — they open it, tap their own name, and they're marked present. No app login, no code typing, and they can't tick anyone but themselves.</p>
+          <div class="btn-row" style="margin-top:10px;">
+            <button class="btn btn-sm btn-amber" onclick="showAttendanceLinkModal('${d}')">📎 Attendance Link & QR</button>
+            <button class="btn btn-sm" onclick="regenCode('${d}')">Regenerate Code</button>
+          </div>
         ` : `
           <p style="color:var(--muted);font-size:.88rem;">No check-in code generated for this date yet.</p>
           <button class="btn btn-amber" onclick="regenCode('${d}')">Generate Check-in Code</button>
@@ -1634,10 +1842,12 @@ async function renderApptBody(){
     </div>
     <div class="card" style="overflow-x:auto;">
       <h3 style="margin-top:0;">Appointment Log (${list.length})</h3>
-      ${list.length===0 ? `<div class="empty-state">No appointments logged yet</div>` : `
       <table><thead><tr><th>No.</th><th>Made By</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th><th></th></tr></thead>
       <tbody>
-        ${list.map((a,i)=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Shi Man</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td><td></td>
+        </tr>
+        ${list.length===0 ? '' : list.map((a,i)=>`
           <tr>
             <td>${i+1}</td>
             <td>${escapeHtml(studentNameById(data, a.madeBy))}</td>
@@ -1648,7 +1858,7 @@ async function renderApptBody(){
             <td>${fmtDate(a.date)}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteAppointment('${a.id}')">Delete</button></td>
           </tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table>
     </div>
   `;
 }
@@ -1656,6 +1866,17 @@ async function renderApptBody(){
 function studentNameById(data, studentId){
   const s = data.students.find(x=>x.id===studentId);
   return s ? s.name : '(unknown)';
+}
+
+// Returns the set of approved student IDs who share the same Team/Leader value
+// as the given student (used so teammates can see each other's Appointment/
+// Recruitment/Attendance/Score, not just their own).
+function getTeamMemberIds(data, student){
+  const leaderKey = (student.leader||'').trim().toLowerCase();
+  if(!leaderKey) return [student.id];
+  return data.students
+    .filter(s => (s.status||'approved')==='approved' && (s.leader||'').trim().toLowerCase()===leaderKey)
+    .map(s => s.id);
 }
 
 async function addAppointment(){
@@ -1723,10 +1944,12 @@ async function renderRecruitBody(){
     </div>
     <div class="card" style="overflow-x:auto;">
       <h3 style="margin-top:0;">Recruitment Log (${list.length})</h3>
-      ${list.length===0 ? `<div class="empty-state">No recruits logged yet</div>` : `
       <table><thead><tr><th>No.</th><th>Made By</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th><th></th></tr></thead>
       <tbody>
-        ${list.map((r,i)=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Shi Man</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td><td></td>
+        </tr>
+        ${list.length===0 ? '' : list.map((r,i)=>`
           <tr>
             <td>${i+1}</td>
             <td>${escapeHtml(studentNameById(data, r.madeBy))}</td>
@@ -1737,7 +1960,7 @@ async function renderRecruitBody(){
             <td>${fmtDate(r.date)}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteRecruit('${r.id}')">Delete</button></td>
           </tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table>
     </div>
   `;
 }
@@ -2114,7 +2337,7 @@ async function exportExcel(){
   const ranking = await loadRanking(S.currentBatchId);
   const wb = XLSX.utils.book_new();
 
-  const roster = data.students.map(s=>({ Name:s.name, Phone:s.phone, Email:s.email||'', 'Agent ID':s.agentId||'', 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
+  const roster = data.students.map(s=>({ Name:s.name, Phone:s.phone, Email:s.email||'', 'State':s.agentId||'', 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(roster.length?roster:[{'Name':''}]), 'Roster');
 
   const attRows = approvedStudents.map(s=>{
@@ -2274,9 +2497,13 @@ async function changePassword(){
 ------------------------------------------------------------ */
 async function viewStuHome(c){
   const batch = S.batches.find(b=>b.id===S.student.batchId) || (await loadBatches()).find(b=>b.id===S.student.batchId);
+  const data = await loadBatchData(S.student.batchId);
+  const me = data.students.find(s=>s.id===S.student.studentId) || {};
   const rows = await computeRankingRows(S.student.batchId);
   const idx = rows.findIndex(r=>r.student.id===S.student.studentId);
   const my = idx>=0 ? rows[idx] : null;
+  const teamIds = getTeamMemberIds(data, me);
+  const teamRows = rows.filter(r=>teamIds.includes(r.student.id));
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">My Batch</h2><p class="view-desc">Welcome, ${escapeHtml(S.student.name)} — ${escapeHtml(batch.name)}</p></div></div>
     <div class="stat-row">
@@ -2284,7 +2511,7 @@ async function viewStuHome(c){
       <div class="stat-card"><div class="stat-num">${my?my.total:0}</div><div class="stat-label">Total Score</div></div>
       <div class="stat-card"><div class="stat-num"><span class="badge ${statusBadgeClass(batch.status)}">${statusLabel(batch.status)}</span></div><div class="stat-label">Batch Status</div></div>
     </div>
-    <div class="card">
+    <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">My Score Breakdown</h3>
       <table>
         <tr><td>Appointment</td><td><b>${my?my.apptScore:0}</b></td></tr>
@@ -2294,6 +2521,18 @@ async function viewStuHome(c){
         <tr><td>Presentation</td><td><b>${my?my.presentation:0}</b></td></tr>
         <tr><td><b>Total</b></td><td><b style="font-size:1.1rem;">${my?my.total:0}</b></td></tr>
       </table>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <h3 style="margin-top:0;">Team Score</h3>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Everyone under the same Team/Leader as you (${escapeHtml(me.leader||'-')})</p>
+      ${teamRows.length===0 ? `<div class="empty-state">No teammates found</div>` : `
+      <table><thead><tr><th>Name</th><th>Total</th></tr></thead><tbody>
+        ${teamRows.map(r=>`
+          <tr style="${r.student.id===S.student.studentId?'background:rgba(232,163,61,.12);':''}">
+            <td>${escapeHtml(r.student.name)}${r.student.id===S.student.studentId?' <span style="color:var(--amber-deep);font-weight:700;">(You)</span>':''}</td>
+            <td><b>${r.total}</b></td>
+          </tr>`).join('')}
+      </tbody></table>`}
     </div>
   `;
 }
@@ -2365,51 +2604,45 @@ async function openPhotoModalStu(photoId){
 async function viewStuAttendance(c){
   const batch = (await loadBatches()).find(b=>b.id===S.student.batchId);
   const data = await loadBatchData(S.student.batchId);
+  const me = data.students.find(s=>s.id===S.student.studentId) || {};
   const dates = data.attendanceDates;
+  const teamIds = getTeamMemberIds(data, me);
+  const teamMembers = data.students.filter(s=>teamIds.includes(s.id));
   c.innerHTML = `
-    <div class="view-head"><div><h2 class="view-title">Check-in</h2><p class="view-desc">Enter the check-in code your admin gives you to check in</p></div></div>
-    <div class="card" style="max-width:420px;margin-bottom:16px;">
-      ${dates.length===0 ? `<p style="color:var(--muted);font-size:.88rem;">No session dates have been added for this batch yet.</p>` : `
-      <div class="field"><label>Select Date</label>
-        <select id="stu-att-date">${dates.slice().reverse().map(ds=>`<option value="${ds}">${dateLabel(ds)}</option>`).join('')}</select>
-      </div>
-      <div class="field"><label>Check-in Code</label><input id="stu-att-code" placeholder="Enter check-in code"></div>
-      <button class="btn btn-amber" onclick="stuCheckin()">Submit Check-in</button>
-      `}
-    </div>
-    <div class="card">
+    <div class="view-head"><div><h2 class="view-title">Attendance</h2><p class="view-desc">This is view-only — your admin marks attendance for you, and will share a separate attendance link for each session</p></div></div>
+    <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">My Attendance Record</h3>
       ${dates.length===0 ? `<div class="empty-state">No dates yet</div>` : `
       <table><thead><tr><th>Date</th><th>Status</th></tr></thead><tbody>
-        ${dates.map(ds=>`<tr><td>${dateLabel(ds)}</td><td>${(data.attendance[ds]&&data.attendance[ds][S.student.studentId])?'<span class="tick-yes">✓ Checked in</span>':'<span class="tick-no">· Not checked in</span>'}</td></tr>`).join('')}
+        ${dates.map(ds=>`<tr><td>${dateLabel(ds)}</td><td>${(data.attendance[ds]&&data.attendance[ds][S.student.studentId])?'<span class="tick-yes">✓ Present</span>':'<span class="tick-no">· Not marked</span>'}</td></tr>`).join('')}
+      </tbody></table>`}
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <h3 style="margin-top:0;">Team Attendance</h3>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Everyone under the same Team/Leader as you (${escapeHtml(me.leader||'-')})</p>
+      ${dates.length===0 || teamMembers.length===0 ? `<div class="empty-state">Nothing to show yet</div>` : `
+      <table><thead><tr><th>Name</th>${dates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${teamMembers.map(s=>`
+          <tr>
+            <td>${escapeHtml(s.name)}${s.id===S.student.studentId?' <span style="color:var(--amber-deep);font-weight:700;">(You)</span>':''}</td>
+            ${dates.map(ds=>{
+              const present = !!(data.attendance[ds] && data.attendance[ds][s.id]);
+              return `<td style="text-align:center;">${present?'<span class="tick-yes">✓</span>':'<span class="tick-no">·</span>'}</td>`;
+            }).join('')}
+          </tr>`).join('')}
       </tbody></table>`}
     </div>
   `;
 }
 
-async function stuCheckin(){
-  const d = document.getElementById('stu-att-date').value;
-  const code = document.getElementById('stu-att-code').value.trim().toUpperCase();
-  const data = await loadBatchData(S.student.batchId);
-  if(data.attendance[d] && data.attendance[d][S.student.studentId]){
-    toast("You're already checked in for this date");
-    return;
-  }
-  if(!data.checkinCodes[d] || data.checkinCodes[d] !== code){
-    toast('Incorrect check-in code');
-    return;
-  }
-  if(!data.attendance[d]) data.attendance[d] = {};
-  data.attendance[d][S.student.studentId] = true;
-  await saveBatchData(S.student.batchId, data);
-  const batch = (await loadBatches()).find(b=>b.id===S.student.batchId);
-  await logNote(S.student.batchId, batch.name, 'attendance', `${S.student.name} checked in (${dateLabel(d)})`);
-  toast('Checked in successfully!');
-  await viewStuAttendance(document.getElementById('content'));
-}
-
 async function viewStuAppointments(c){
-  const list = (await loadAppointments(S.student.batchId)).filter(a=>a.madeBy===S.student.studentId);
+  const data = await loadBatchData(S.student.batchId);
+  const me = data.students.find(s=>s.id===S.student.studentId) || {};
+  const allAppts = await loadAppointments(S.student.batchId);
+  const list = allAppts.filter(a=>a.madeBy===S.student.studentId);
+  const teamIds = getTeamMemberIds(data, me);
+  const teamList = allAppts.filter(a=>teamIds.includes(a.madeBy));
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">Appointments</h2><p class="view-desc">Log your own appointments — 1 appointment = 2 points</p></div></div>
     <div class="card" style="margin-bottom:16px;">
@@ -2423,12 +2656,14 @@ async function viewStuAppointments(c){
       </div>
       <button class="btn btn-amber" onclick="stuAddAppointment()">+ Add Appointment</button>
     </div>
-    <div class="card" style="overflow-x:auto;">
+    <div class="card" style="overflow-x:auto;margin-bottom:16px;">
       <h3 style="margin-top:0;">My Appointments (${list.length})</h3>
-      ${list.length===0 ? `<div class="empty-state">You haven't logged any appointments yet</div>` : `
       <table><thead><tr><th>No.</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th><th></th></tr></thead>
       <tbody>
-        ${list.map((a,i)=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td><td></td>
+        </tr>
+        ${list.length===0 ? '' : list.map((a,i)=>`
           <tr>
             <td>${i+1}</td>
             <td>${escapeHtml(a.clientName)}</td>
@@ -2437,6 +2672,23 @@ async function viewStuAppointments(c){
             <td>${escapeHtml(a.closer)}</td>
             <td>${fmtDate(a.date)}</td>
             <td><button class="btn btn-sm btn-danger" onclick="stuDeleteAppointment('${a.id}')">Delete</button></td>
+          </tr>`).join('')}
+      </tbody></table>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <h3 style="margin-top:0;">Team Appointments (${teamList.length})</h3>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Everyone under the same Team/Leader as you (${escapeHtml(me.leader||'-')})</p>
+      ${teamList.length===0 ? `<div class="empty-state">No appointments logged by your team yet</div>` : `
+      <table><thead><tr><th>Made By</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
+      <tbody>
+        ${teamList.map(a=>`
+          <tr>
+            <td>${escapeHtml(studentNameById(data, a.madeBy))}</td>
+            <td>${escapeHtml(a.clientName)}</td>
+            <td>${escapeHtml(a.contact)}</td>
+            <td>${escapeHtml(a.origin)}</td>
+            <td>${escapeHtml(a.closer)}</td>
+            <td>${fmtDate(a.date)}</td>
           </tr>`).join('')}
       </tbody></table>`}
     </div>
@@ -2469,7 +2721,12 @@ async function stuDeleteAppointment(id){
 }
 
 async function viewStuRecruitment(c){
-  const list = (await loadRecruitment(S.student.batchId)).filter(r=>r.madeBy===S.student.studentId);
+  const data = await loadBatchData(S.student.batchId);
+  const me = data.students.find(s=>s.id===S.student.studentId) || {};
+  const allRecruits = await loadRecruitment(S.student.batchId);
+  const list = allRecruits.filter(r=>r.madeBy===S.student.studentId);
+  const teamIds = getTeamMemberIds(data, me);
+  const teamList = allRecruits.filter(r=>teamIds.includes(r.madeBy));
   c.innerHTML = `
     <div class="view-head"><div><h2 class="view-title">Recruitment</h2><p class="view-desc">Log your own recruits — 1 recruit = 3 points</p></div></div>
     <div class="card" style="margin-bottom:16px;">
@@ -2483,12 +2740,14 @@ async function viewStuRecruitment(c){
       </div>
       <button class="btn btn-amber" onclick="stuAddRecruit()">+ Add Recruit</button>
     </div>
-    <div class="card" style="overflow-x:auto;">
+    <div class="card" style="overflow-x:auto;margin-bottom:16px;">
       <h3 style="margin-top:0;">My Recruits (${list.length})</h3>
-      ${list.length===0 ? `<div class="empty-state">You haven't logged any recruits yet</div>` : `
       <table><thead><tr><th>No.</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th><th></th></tr></thead>
       <tbody>
-        ${list.map((r,i)=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td><td></td>
+        </tr>
+        ${list.length===0 ? '' : list.map((r,i)=>`
           <tr>
             <td>${i+1}</td>
             <td>${escapeHtml(r.clientName)}</td>
@@ -2497,6 +2756,23 @@ async function viewStuRecruitment(c){
             <td>${escapeHtml(r.closer)}</td>
             <td>${fmtDate(r.date)}</td>
             <td><button class="btn btn-sm btn-danger" onclick="stuDeleteRecruit('${r.id}')">Delete</button></td>
+          </tr>`).join('')}
+      </tbody></table>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <h3 style="margin-top:0;">Team Recruits (${teamList.length})</h3>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Everyone under the same Team/Leader as you (${escapeHtml(me.leader||'-')})</p>
+      ${teamList.length===0 ? `<div class="empty-state">No recruits logged by your team yet</div>` : `
+      <table><thead><tr><th>Made By</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
+      <tbody>
+        ${teamList.map(r=>`
+          <tr>
+            <td>${escapeHtml(studentNameById(data, r.madeBy))}</td>
+            <td>${escapeHtml(r.clientName)}</td>
+            <td>${escapeHtml(r.contact)}</td>
+            <td>${escapeHtml(r.origin)}</td>
+            <td>${escapeHtml(r.closer)}</td>
+            <td>${fmtDate(r.date)}</td>
           </tr>`).join('')}
       </tbody></table>`}
     </div>
@@ -2632,6 +2908,14 @@ async function runDbSelfTest(){
       S.batches = batches;
       const batch = batches.find(b => b.code && b.code.toUpperCase()===code.toUpperCase() && b.status==='active' && !b.archived);
       if(batch){
+        if(mode === 'attendance'){
+          const attDate = params.get('date');
+          const acode = params.get('acode');
+          if(attDate && acode){
+            await showPublicAttendance(batch.id, attDate, acode);
+            return;
+          }
+        }
         if(mode === 'quick'){
           await showPublicQuickAccess(batch.id);
         } else if(mode === 'login'){
