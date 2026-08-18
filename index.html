@@ -72,7 +72,7 @@
   .nav-group-chevron{font-size:.7rem;opacity:.8;}
   .nav-group-label:first-of-type{margin-top:0;}
   .sidebar-brand span{display:block;font-family:'Caveat',cursive;font-size:1rem;color:var(--amber);font-weight:700;}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px 9px 20px;border-radius:0 8px 8px 0;margin-bottom:2px;background:none;border:none;border-left:2px solid rgba(245,243,234,.12);color:var(--chalk);text-align:left;width:100%;font-size:.92rem;font-weight:500;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px 9px 20px;border-radius:0 8px 8px 0;margin-bottom:2px;background:none;border:none;border-left:2px solid rgba(245,243,234,.12);color:var(--chalk);text-align:left;width:100%;font-size:.92rem;font-weight:500;white-space:nowrap;}
   .nav-item:hover{background:rgba(245,243,234,.08);border-left-color:rgba(245,243,234,.35);}
   .nav-item.active{background:rgba(232,163,61,.18);color:var(--amber);font-weight:700;border-left:2px solid var(--amber);}
   .nav-spacer{flex:1;}
@@ -104,8 +104,8 @@
   .stat-label{font-size:.8rem;color:var(--muted);margin-top:2px;}
 
   table{width:100%;border-collapse:collapse;font-size:.9rem;}
-  th{text-align:left;padding:10px 12px;background:var(--paper-soft);color:var(--muted);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);}
-  td{padding:10px 12px;border-bottom:1px solid var(--line);}
+  th{text-align:left;padding:10px 12px;background:var(--paper-soft);color:var(--muted);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}
   tr:last-child td{border-bottom:none;}
 
   .btn{padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--paper);font-weight:600;font-size:.85rem;color:var(--ink);}
@@ -125,11 +125,11 @@
   .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
   .batch-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;overflow:hidden;}
   .batch-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
-  .batch-name{font-weight:800;font-size:1.1rem;margin:8px 0 4px;}
-  .batch-daterange{font-size:.85rem;color:var(--ink);font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:2px;}
-  .batch-meta{font-size:.8rem;color:var(--muted);margin-bottom:10px;}
+  .batch-name{font-weight:800;font-size:1.1rem;margin:8px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .batch-daterange{font-size:.85rem;color:var(--ink);font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:2px;white-space:nowrap;}
+  .batch-meta{font-size:.8rem;color:var(--muted);margin-bottom:10px;white-space:nowrap;}
   .batch-meta-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
-  .batch-pill{font-size:.76rem;color:var(--muted);background:var(--paper-soft);padding:3px 10px;border-radius:20px;}
+  .batch-pill{font-size:.76rem;color:var(--muted);background:var(--paper-soft);padding:3px 10px;border-radius:20px;white-space:nowrap;}
   .batch-code{font-family:'JetBrains Mono',monospace;background:var(--paper-soft);padding:2px 8px;border-radius:6px;font-size:.78rem;letter-spacing:1px;}
   .batch-section{padding-top:12px;border-top:1px dashed var(--line);margin-top:12px;}
   .batch-section:first-of-type{border-top:none;margin-top:0;padding-top:0;}
@@ -361,17 +361,13 @@ function showCredentialsModal(s, batch){
     ? `Hi ${s.name}! You're approved for ${batch.name}.\n\nJust tap this link to go straight in — no password needed:\n${directLink}`
     : `Hi ${s.name}! You're approved for ${batch.name}.\nOpen this link and choose "Member" → "Continue as Guest", then enter your phone number to go in — no password needed:\n${appLink}`;
   const waLink = `https://wa.me/${(s.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`;
-  const mailLink = `mailto:${encodeURIComponent(s.email||'')}?subject=${encodeURIComponent('Your '+batch.name+' login details')}&body=${encodeURIComponent(msg)}`;
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
       <div class="modal">
         <h3>Send Login Details</h3>
-        <p style="font-size:.85rem;color:var(--muted);">This system can't send messages automatically — click a button below to open WhatsApp or Email with the message already written, then hit send yourself.</p>
+        <p style="font-size:.85rem;color:var(--muted);">This system can't send messages automatically — click the button below to open WhatsApp with the message already written, then hit send yourself.</p>
         <div class="card" style="background:var(--paper-soft);white-space:pre-wrap;font-size:.82rem;margin-bottom:14px;">${escapeHtml(msg)}</div>
-        <div class="btn-row">
-          <a class="btn btn-amber" href="${waLink}" target="_blank" style="flex:1;text-align:center;text-decoration:none;">Open WhatsApp</a>
-          <a class="btn" href="${mailLink}" style="flex:1;text-align:center;text-decoration:none;">Open Email</a>
-        </div>
+        <a class="btn btn-amber" href="${waLink}" target="_blank" style="width:100%;display:block;text-align:center;text-decoration:none;box-sizing:border-box;">Open WhatsApp</a>
         ${directLink ? `<button class="btn" style="width:100%;margin-top:10px;" onclick="showDirectLinkModal('${s.id}')">Show Direct Link QR</button>` : ''}
         <button class="btn" style="width:100%;margin-top:10px;" onclick="closeModal()">Close</button>
       </div>
@@ -831,7 +827,6 @@ function renderPublicRegForm(batchId){
   document.getElementById('pubreg-form-area').innerHTML = `
     <div class="field"><label>Name</label><input id="pr-name"></div>
     <div class="field"><label>Phone Number</label><input id="pr-phone"></div>
-    <div class="field"><label>Email</label><input id="pr-email" type="email"></div>
     <div class="field"><label>State</label><select id="pr-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
     <div class="field"><label>Team / Leader</label><input id="pr-leader"></div>
     <div class="field"><label>Notes (optional)</label><input id="pr-notes"></div>
@@ -857,7 +852,6 @@ function renderPublicLoginForm(batchId){
 async function submitPublicRegistration(batchId){
   const name = document.getElementById('pr-name').value.trim();
   const phone = document.getElementById('pr-phone').value.trim();
-  const email = document.getElementById('pr-email').value.trim();
   const agentId = document.getElementById('pr-agentid').value.trim();
   const leader = document.getElementById('pr-leader').value.trim();
   const notes = document.getElementById('pr-notes').value.trim();
@@ -871,7 +865,7 @@ async function submitPublicRegistration(batchId){
   }
   errEl.style.display = 'none';
   data.students.push({
-    id: uid('s'), name, phone, email, agentId, leader, notes,
+    id: uid('s'), name, phone, agentId, leader, notes,
     status: 'pending', password: null,
     registeredAt: new Date().toISOString(), approvedAt: null
   });
@@ -1327,13 +1321,12 @@ async function renderBatchMembersTable(){
       <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
       ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
       <table>
-        <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
         <tbody>
           ${students.map(s=>`
             <tr>
               <td>${escapeHtml(s.name)}</td>
               <td>${escapeHtml(s.phone)}</td>
-              <td>${escapeHtml(s.email||'-')}</td>
               <td>${escapeHtml(s.agentId||'-')}</td>
               <td>${escapeHtml(s.leader||'-')}</td>
               <td>${escapeHtml(s.notes||'-')}</td>
@@ -1515,7 +1508,6 @@ async function renderRegBody(){
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
         <div class="field"><label>Name</label><input id="ar-name"></div>
         <div class="field"><label>Phone</label><input id="ar-phone"></div>
-        <div class="field"><label>Email</label><input id="ar-email" type="email"></div>
         <div class="field"><label>State</label><select id="ar-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
         <div class="field"><label>Team / Leader</label><input id="ar-leader"></div>
       </div>
@@ -1523,9 +1515,9 @@ async function renderRegBody(){
     </div>
     <div class="card" style="margin-top:16px;">
       <h3 style="margin-top:0;">Bulk Add from Google Form / Sheet</h3>
-      <p style="color:var(--muted);font-size:.82rem;margin-top:-4px;">Already collected registrations elsewhere (like a Google Form)? Open the response sheet, select the columns for <b>Name, Phone, Email, State, Team/Leader</b> (in that order), copy, and paste the rows below — one person per line. All of them get added and approved straight away.</p>
-      <textarea id="bulk-add-text" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" placeholder="John Doe	0123456789	john@example.com	Selangor	Karboo
-Jane Lee	0198765432	jane@example.com	Johor	JK Lim"></textarea>
+      <p style="color:var(--muted);font-size:.82rem;margin-top:-4px;">Already collected registrations elsewhere (like a Google Form)? Open the response sheet, select the columns for <b>Name, Phone, State, Team/Leader</b> (in that order), copy, and paste the rows below — one person per line. All of them get added and approved straight away.</p>
+      <textarea id="bulk-add-text" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" placeholder="John Doe	0123456789	Selangor	Karboo
+Jane Lee	0198765432	Johor	JK Lim"></textarea>
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn btn-amber" onclick="bulkAddStudents()">+ Add All</button>
       </div>
@@ -1549,9 +1541,8 @@ async function bulkAddStudents(){
     const cols = line.includes('\t') ? line.split('\t') : line.split(',');
     const name = (cols[0]||'').trim();
     const phone = (cols[1]||'').trim();
-    const email = (cols[2]||'').trim();
-    const state = (cols[3]||'').trim();
-    const leader = (cols[4]||'').trim();
+    const state = (cols[2]||'').trim();
+    const leader = (cols[3]||'').trim();
 
     // Skip an obvious header row
     if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) continue;
@@ -1560,7 +1551,7 @@ async function bulkAddStudents(){
     if(existingPhones.has(normPhone)){ skipped++; continue; }
 
     data.students.push({
-      id: uid('s'), name, phone, email, agentId: state, leader, notes:'',
+      id: uid('s'), name, phone, agentId: state, leader, notes:'',
       status:'approved', password: genCode(6), accessToken: uid('mtok'),
       registeredAt: new Date().toISOString(), approvedAt: new Date().toISOString()
     });
@@ -1584,11 +1575,11 @@ async function bulkAddStudents(){
 function renderPendingTable(pending){
   if(pending.length===0) return `<div class="card"><div class="empty-state">No pending registrations</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
     <tbody>
       ${pending.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td><td>${escapeHtml(s.email||'-')}</td>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td>
           <td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td><td>${escapeHtml(s.notes||'-')}</td>
           <td>${fmtDate(s.registeredAt)}</td>
           <td class="btn-row">
@@ -1604,11 +1595,11 @@ function renderPendingTable(pending){
 function renderApprovedTable(approved){
   if(approved.length===0) return `<div class="card"><div class="empty-state">No approved members yet</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
     <tbody>
       ${approved.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td><td>${escapeHtml(s.email||'-')}</td>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td>
           <td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td>
           <td>${fmtDate(s.approvedAt||s.registeredAt)}</td>
           <td class="btn-row">
@@ -1659,7 +1650,6 @@ async function editPendingStudent(studentId){
         <h3>Edit Registration</h3>
         <div class="field"><label>Name</label><input id="ep-name" value="${escapeHtml(s.name)}"></div>
         <div class="field"><label>Phone</label><input id="ep-phone" value="${escapeHtml(s.phone)}"></div>
-        <div class="field"><label>Email</label><input id="ep-email" value="${escapeHtml(s.email||'')}"></div>
         <div class="field"><label>State</label><select id="ep-agentid">
           <option value="">-- Select --</option>
           ${MALAYSIA_STATES.map(st=>`<option ${s.agentId===st?'selected':''}>${st}</option>`).join('')}
@@ -1678,7 +1668,6 @@ async function saveEditPending(studentId){
   if(!s) return;
   s.name = document.getElementById('ep-name').value.trim();
   s.phone = document.getElementById('ep-phone').value.trim();
-  s.email = document.getElementById('ep-email').value.trim();
   s.agentId = document.getElementById('ep-agentid').value.trim();
   s.leader = document.getElementById('ep-leader').value.trim();
   s.notes = document.getElementById('ep-notes').value.trim();
@@ -1749,14 +1738,13 @@ async function showDirectLinkModal(studentId){
 async function adminAddStudent(){
   const name = document.getElementById('ar-name').value.trim();
   const phone = document.getElementById('ar-phone').value.trim();
-  const email = document.getElementById('ar-email').value.trim();
   const agentId = document.getElementById('ar-agentid').value.trim();
   const leader = document.getElementById('ar-leader').value.trim();
   if(!name || !phone || !agentId){ toast('Please fill in name, phone and state'); return; }
   const data = await loadBatchData(S.currentBatchId);
   if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){ toast('This phone number is already registered'); return; }
   const newStudent = {
-    id: uid('s'), name, phone, email, agentId, leader, notes:'',
+    id: uid('s'), name, phone, agentId, leader, notes:'',
     status:'approved', password: genCode(6), accessToken: uid('mtok'),
     registeredAt: new Date().toISOString(), approvedAt: new Date().toISOString()
   };
@@ -2641,7 +2629,7 @@ async function exportExcel(){
   const ranking = await loadRanking(S.currentBatchId);
   const wb = XLSX.utils.book_new();
 
-  const roster = data.students.map(s=>({ Name:s.name, Phone:s.phone, Email:s.email||'', 'State':s.agentId||'', 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
+  const roster = data.students.map(s=>({ Name:s.name, Phone:s.phone, 'State':s.agentId||'', 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(roster.length?roster:[{'Name':''}]), 'Roster');
 
   const attRows = approvedStudents.map(s=>{
@@ -2693,13 +2681,13 @@ async function printReport(){
     <p>Start Date：${fmtDate(batch.startDate)} ｜ Status: ${statusLabel(batch.status)} | Members: ${approvedStudents.length}</p>
     <h2>Member Roster</h2>
     <table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;">
-      <tr><th>Name</th><th>Phone</th><th>Email</th><th>Team/Leader</th>
+      <tr><th>Name</th><th>Phone</th><th>Team/Leader</th>
         ${data.attendanceDates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}
         ${Array.from({length:batch.tests},(_,i)=>`<th>Test${i+1}</th>`).join('')}
       </tr>
       ${approvedStudents.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td><td>${escapeHtml(s.email||'')}</td><td>${escapeHtml(s.leader||'')}</td>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td><td>${escapeHtml(s.leader||'')}</td>
           ${data.attendanceDates.map(ds=>`<td>${(data.attendance[ds]&&data.attendance[ds][s.id])?'✓':'-'}</td>`).join('')}
           ${Array.from({length:batch.tests},(_,i)=>`<td>${(data.marks[i+1]&&data.marks[i+1][s.id]!==undefined)?data.marks[i+1][s.id]:'-'}</td>`).join('')}
         </tr>`).join('')}
