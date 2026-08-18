@@ -257,6 +257,24 @@ let S = {
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+// Session persistence — keeps you logged in across a page refresh.
+// Uses localStorage since this app runs as a real deployed site (not a Claude
+// artifact preview), with its own Supabase backend independent of Claude's
+// artifact storage API.
+const SESSION_KEY = 'mad_breakegg_session_v1';
+function saveSession(sessionObj){
+  try{ localStorage.setItem(SESSION_KEY, JSON.stringify(sessionObj)); }catch(e){ /* ignore if storage unavailable */ }
+}
+function clearSession(){
+  try{ localStorage.removeItem(SESSION_KEY); }catch(e){ /* ignore */ }
+}
+function loadSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
 // Note: 'shared' is kept as a parameter for compatibility with existing calls
 // but every row lives in the same app_storage table — this whole app is one
 // shared dataset (that's the point: Admin and every Member see the same data).
@@ -314,8 +332,8 @@ function dateLabel(dateStr){
   return d+'/'+m;
 }
 
-async function recalcStudentCount(batchId){
-  const data = await loadBatchData(batchId);
+async function recalcStudentCount(batchId, preloadedData){
+  const data = preloadedData || await loadBatchData(batchId);
   const batches = await loadBatches();
   const b = batches.find(x=>x.id===batchId);
   if(b){
@@ -517,6 +535,7 @@ async function doAdminLogin(){
   if(user === auth.username && pass === auth.password){
     S.isAdmin = true; S.student = null;
     errEl.style.display='none';
+    saveSession({ role:'admin' });
     await enterApp();
   } else {
     errEl.textContent = 'Incorrect username or password';
@@ -567,6 +586,7 @@ async function enterAsMember(batchId, studentId, name){
   S.isAdmin = false;
   S.student = { batchId, studentId, name };
   S.currentBatchId = batchId;
+  saveSession({ role:'member', batchId, studentId, name });
   await enterApp();
 }
 
@@ -908,6 +928,7 @@ function logout(){
   S.student = null;
   S.currentBatchId = null;
   S.navOpen = false;
+  clearSession();
   document.getElementById('app-shell').classList.remove('show');
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('admin-user') && (document.getElementById('admin-user').value='');
@@ -1528,27 +1549,30 @@ Jane Lee	0198765432	Johor	JK Lim"></textarea>
 
 async function bulkAddStudents(){
   const raw = document.getElementById('bulk-add-text').value;
-  const resultEl = document.getElementById('bulk-add-result');
   const lines = raw.split('\n').map(l=>l.trim()).filter(l=>l.length);
   if(lines.length===0){ toast('Paste some rows first'); return; }
 
   const data = await loadBatchData(S.currentBatchId);
   const existingPhones = new Set(data.students.map(s=>s.phone.replace(/\s/g,'')));
-  let added = 0, skipped = 0;
+  let added = 0;
   const addedNames = [];
+  const skippedRows = []; // { line, reason }
 
-  for(const line of lines){
+  lines.forEach((line, idx) => {
     const cols = line.includes('\t') ? line.split('\t') : line.split(',');
     const name = (cols[0]||'').trim();
     const phone = (cols[1]||'').trim();
     const state = (cols[2]||'').trim();
     const leader = (cols[3]||'').trim();
 
-    // Skip an obvious header row
-    if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) continue;
-    if(!name || !phone || !state){ skipped++; continue; }
+    // Skip an obvious header row silently (not counted as an error)
+    if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) return;
+
+    if(!name){ skippedRows.push({ line, reason: 'Missing name' }); return; }
+    if(!phone){ skippedRows.push({ line, reason: 'Missing phone' }); return; }
+    if(!state){ skippedRows.push({ line, reason: 'Missing state (check column order — should be Name, Phone, State, Team/Leader)' }); return; }
     const normPhone = phone.replace(/\s/g,'');
-    if(existingPhones.has(normPhone)){ skipped++; continue; }
+    if(existingPhones.has(normPhone)){ skippedRows.push({ line, reason: 'Phone already registered in this batch' }); return; }
 
     data.students.push({
       id: uid('s'), name, phone, agentId: state, leader, notes:'',
@@ -1558,18 +1582,44 @@ async function bulkAddStudents(){
     existingPhones.add(normPhone);
     addedNames.push(name);
     added++;
-  }
+  });
 
   await saveBatchData(S.currentBatchId, data);
-  await recalcStudentCount(S.currentBatchId);
+  await recalcStudentCount(S.currentBatchId, data);
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   if(added>0) await logNote(S.currentBatchId, batch.name, 'register', `Bulk-added ${added} member(s) from pasted sheet`);
 
-  resultEl.innerHTML = `<b>${added}</b> added${skipped>0?`, <b>${skipped}</b> skipped (missing name/phone/state or already registered)`:''}.` +
-    (addedNames.length ? `<br><span style="color:var(--muted);">${addedNames.map(escapeHtml).join(', ')}</span>` : '');
   document.getElementById('bulk-add-text').value = '';
-  toast(`${added} member(s) added`);
+  showBulkAddResultModal(added, addedNames, skippedRows);
+  S.regTab = 'approved';
   await renderRegBody();
+}
+
+function showBulkAddResultModal(added, addedNames, skippedRows){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:600px;">
+        <h3 style="margin-top:0;">Bulk Add Results</h3>
+        <p><b style="color:var(--success);font-size:1.1rem;">${added}</b> member(s) added${skippedRows.length ? `, <b style="color:var(--danger);font-size:1.1rem;">${skippedRows.length}</b> skipped` : ''}.</p>
+        ${addedNames.length ? `
+          <div style="margin-bottom:14px;">
+            <b style="font-size:.85rem;">Added:</b>
+            <p style="color:var(--muted);font-size:.85rem;">${addedNames.map(escapeHtml).join(', ')}</p>
+          </div>` : ''}
+        ${skippedRows.length ? `
+          <div style="margin-bottom:14px;max-height:240px;overflow-y:auto;">
+            <b style="font-size:.85rem;">Skipped rows (with reason):</b>
+            <table style="margin-top:6px;">
+              <thead><tr><th>Pasted Row</th><th>Reason</th></tr></thead>
+              <tbody>
+                ${skippedRows.map(r=>`<tr><td style="font-family:'JetBrains Mono',monospace;font-size:.78rem;">${escapeHtml(r.line)}</td><td>${escapeHtml(r.reason)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : ''}
+        <button class="btn btn-amber" style="width:100%;" onclick="closeModal()">Close</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderPendingTable(pending){
@@ -1622,7 +1672,7 @@ async function approveStudent(studentId){
   s.accessToken = uid('mtok');
   s.approvedAt = new Date().toISOString();
   await saveBatchData(S.currentBatchId, data);
-  await recalcStudentCount(S.currentBatchId);
+  await recalcStudentCount(S.currentBatchId, data);
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   await logNote(S.currentBatchId, batch.name, 'approval', `${s.name} approved`);
   toast('Approved');
@@ -1702,12 +1752,12 @@ async function doTransfer(studentId){
   if(!s) return;
   data.students = data.students.filter(x=>x.id!==studentId);
   await saveBatchData(S.currentBatchId, data);
-  await recalcStudentCount(S.currentBatchId);
+  await recalcStudentCount(S.currentBatchId, data);
 
   const targetData = await loadBatchData(targetId);
   targetData.students.push({ ...s, id: uid('s'), status:'pending', password:null, registeredAt: new Date().toISOString(), approvedAt:null });
   await saveBatchData(targetId, targetData);
-  await recalcStudentCount(targetId);
+  await recalcStudentCount(targetId, targetData);
 
   closeModal();
   toast('Transferred — awaiting approval in the new batch');
@@ -1750,7 +1800,7 @@ async function adminAddStudent(){
   };
   data.students.push(newStudent);
   await saveBatchData(S.currentBatchId, data);
-  await recalcStudentCount(S.currentBatchId);
+  await recalcStudentCount(S.currentBatchId, data);
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   await logNote(S.currentBatchId, batch.name, 'register', `Admin added member ${name}`);
   toast('Added');
@@ -1763,7 +1813,7 @@ async function removeStudent(studentId){
   const data = await loadBatchData(S.currentBatchId);
   data.students = data.students.filter(s=>s.id!==studentId);
   await saveBatchData(S.currentBatchId, data);
-  await recalcStudentCount(S.currentBatchId);
+  await recalcStudentCount(S.currentBatchId, data);
   toast('Removed');
   if(document.getElementById('reg-body')) await renderRegBody();
 }
@@ -3293,6 +3343,31 @@ async function runDbSelfTest(){
           await showPublicRegister(batch.id);
         }
         return;
+      }
+    }
+
+    // No special link matched — restore a previous login session if one exists,
+    // so a page refresh doesn't kick people back to the login screen.
+    const session = loadSession();
+    if(session){
+      if(session.role === 'admin'){
+        S.isAdmin = true;
+        S.student = null;
+        await enterApp();
+        return;
+      } else if(session.role === 'member'){
+        const batches = await loadBatches();
+        S.batches = batches;
+        const batch = batches.find(b=>b.id===session.batchId);
+        if(batch){
+          const data = await loadBatchData(session.batchId);
+          const student = data.students.find(s=>s.id===session.studentId && (s.status||'approved')==='approved');
+          if(student){
+            await enterAsMember(session.batchId, student.id, student.name);
+            return;
+          }
+        }
+        clearSession(); // batch/member no longer valid — drop the stale session
       }
     }
   }catch(e){ console.error(e); }
