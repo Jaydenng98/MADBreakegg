@@ -2590,13 +2590,14 @@ function showDbBanner(msg){
 async function runDbSelfTest(){
   if(SB_LOAD_ERROR){ showDbBanner('CLIENT INIT FAILED — ' + SB_LOAD_ERROR); return; }
   try{
-    const testKey = '__conn_test__';
+    const testKey = '__conn_test_' + uid('t') + '__'; // unique per run — avoids collisions if multiple tabs/devices self-test at once
     const testVal = { ping: Date.now() };
     const up = await sb.from('app_storage').upsert({ key: testKey, value: testVal, shared: true, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if(up.error){ showDbBanner('WRITE FAILED — ' + up.error.code + ': ' + up.error.message + (up.error.hint ? ' | hint: ' + up.error.hint : '')); return; }
     const rd = await sb.from('app_storage').select('value').eq('key', testKey).order('updated_at', { ascending:false }).limit(1);
     if(rd.error){ showDbBanner('READ FAILED — ' + rd.error.code + ': ' + rd.error.message + (rd.error.hint ? ' | hint: ' + rd.error.hint : '')); return; }
-    if(!rd.data || !rd.data.length || rd.data[0].value.ping !== testVal.ping){ showDbBanner('READ/WRITE MISMATCH — wrote a value but could not read the same value back. Table may have duplicate keys or a caching layer.'); return; }
+    if(!rd.data || !rd.data.length){ showDbBanner('READ RETURNED NO ROWS — write succeeded but the row could not be read back. This is almost always a missing SELECT policy on app_storage — check Supabase > Authentication > Policies and make sure SELECT is allowed for anon.'); return; }
+    if(rd.data[0].value.ping !== testVal.ping){ showDbBanner('READ/WRITE MISMATCH — wrote a value but read back a different one. Table may have duplicate keys or stale cached data.'); return; }
     // self-test passed — clean up the test row silently
     await sb.from('app_storage').delete().eq('key', testKey);
   }catch(e){
