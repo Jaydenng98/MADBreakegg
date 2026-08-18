@@ -846,8 +846,8 @@ function renderPublicRegForm(batchId){
   document.getElementById('pub-title').textContent = 'Register';
   document.getElementById('pubreg-form-area').innerHTML = `
     <div class="field"><label>Name</label><input id="pr-name"></div>
-    <div class="field"><label>Phone Number</label><input id="pr-phone"></div>
     <div class="field"><label>State</label><select id="pr-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
+    <div class="field"><label>Phone Number</label><input id="pr-phone"></div>
     <div class="field"><label>Team / Leader</label><input id="pr-leader"></div>
     <div class="field"><label>Notes (optional)</label><input id="pr-notes"></div>
     <div id="pr-err" class="err-msg" style="display:none;"></div>
@@ -1342,13 +1342,13 @@ async function renderBatchMembersTable(){
       <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
       ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
       <table>
-        <thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
+        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
         <tbody>
           ${students.map(s=>`
             <tr>
               <td>${escapeHtml(s.name)}</td>
-              <td>${escapeHtml(s.phone)}</td>
               <td>${escapeHtml(s.agentId||'-')}</td>
+              <td>${escapeHtml(s.phone)}</td>
               <td>${escapeHtml(s.leader||'-')}</td>
               <td>${escapeHtml(s.notes||'-')}</td>
               <td><span class="badge ${s.status==='pending'?'badge-cancelled':s.status==='rejected'?'badge-cancelled':'badge-active'}">${escapeHtml(s.status||'approved')}</span></td>
@@ -1528,17 +1528,17 @@ async function renderRegBody(){
       <h3 style="margin-top:0;">Add Member Manually (skips approval)</h3>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
         <div class="field"><label>Name</label><input id="ar-name"></div>
-        <div class="field"><label>Phone</label><input id="ar-phone"></div>
         <div class="field"><label>State</label><select id="ar-agentid"><option value="">-- Select --</option><option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Sabah</option><option>Sarawak</option><option>Melaka</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Perlis</option><option>Putrajaya</option><option>Labuan</option></select></div>
+        <div class="field"><label>Phone</label><input id="ar-phone"></div>
         <div class="field"><label>Team / Leader</label><input id="ar-leader"></div>
       </div>
       <button class="btn btn-amber" onclick="adminAddStudent()">+ Add Member</button>
     </div>
     <div class="card" style="margin-top:16px;">
       <h3 style="margin-top:0;">Bulk Add from Google Form / Sheet</h3>
-      <p style="color:var(--muted);font-size:.82rem;margin-top:-4px;">Already collected registrations elsewhere (like a Google Form)? Open the response sheet, select the columns for <b>Name, Phone, State, Team/Leader</b> (in that order), copy, and paste the rows below — one person per line. All of them get added and approved straight away.</p>
-      <textarea id="bulk-add-text" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" placeholder="John Doe	0123456789	Selangor	Karboo
-Jane Lee	0198765432	Johor	JK Lim"></textarea>
+      <p style="color:var(--muted);font-size:.82rem;margin-top:-4px;">Already collected registrations elsewhere (like a Google Form)? Open the response sheet, select the columns for <b>Name, State, Phone, Team/Leader</b> (in that order), copy, and paste the rows below — one person per line. All of them get added and approved straight away.</p>
+      <textarea id="bulk-add-text" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" placeholder="John Doe	Selangor	0123456789	Karboo
+Jane Lee	Johor	0198765432	JK Lim"></textarea>
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn btn-amber" onclick="bulkAddStudents()">+ Add All</button>
       </div>
@@ -1561,16 +1561,16 @@ async function bulkAddStudents(){
   lines.forEach((line, idx) => {
     const cols = line.includes('\t') ? line.split('\t') : line.split(',');
     const name = (cols[0]||'').trim();
-    const phone = (cols[1]||'').trim();
-    const state = (cols[2]||'').trim();
+    const state = (cols[1]||'').trim();
+    const phone = (cols[2]||'').trim();
     const leader = (cols[3]||'').trim();
 
     // Skip an obvious header row silently (not counted as an error)
-    if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) return;
+    if(name.toLowerCase()==='name' && state.toLowerCase().includes('state')) return;
 
     if(!name){ skippedRows.push({ line, reason: 'Missing name' }); return; }
+    if(!state){ skippedRows.push({ line, reason: 'Missing state (check column order — should be Name, State, Phone, Team/Leader)' }); return; }
     if(!phone){ skippedRows.push({ line, reason: 'Missing phone' }); return; }
-    if(!state){ skippedRows.push({ line, reason: 'Missing state (check column order — should be Name, Phone, State, Team/Leader)' }); return; }
     const normPhone = phone.replace(/\s/g,'');
     if(existingPhones.has(normPhone)){ skippedRows.push({ line, reason: 'Phone already registered in this batch' }); return; }
 
@@ -1625,12 +1625,12 @@ function showBulkAddResultModal(added, addedNames, skippedRows){
 function renderPendingTable(pending){
   if(pending.length===0) return `<div class="card"><div class="empty-state">No pending registrations</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
     <tbody>
       ${pending.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td>
-          <td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td><td>${escapeHtml(s.notes||'-')}</td>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.leader||'-')}</td><td>${escapeHtml(s.notes||'-')}</td>
           <td>${fmtDate(s.registeredAt)}</td>
           <td class="btn-row">
             <button class="btn btn-sm btn-amber" onclick="approveStudent('${s.id}')">Approve</button>
@@ -1645,12 +1645,12 @@ function renderPendingTable(pending){
 function renderApprovedTable(approved){
   if(approved.length===0) return `<div class="card"><div class="empty-state">No approved members yet</div></div>`;
   return `<div class="card" style="overflow-x:auto;">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>State</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
     <tbody>
       ${approved.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone)}</td>
-          <td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.leader||'-')}</td>
           <td>${fmtDate(s.approvedAt||s.registeredAt)}</td>
           <td class="btn-row">
             <button class="btn btn-sm btn-amber" onclick="showDirectLinkModal('${s.id}')">Direct Link</button>
@@ -1699,11 +1699,11 @@ async function editPendingStudent(studentId){
       <div class="modal">
         <h3>Edit Registration</h3>
         <div class="field"><label>Name</label><input id="ep-name" value="${escapeHtml(s.name)}"></div>
-        <div class="field"><label>Phone</label><input id="ep-phone" value="${escapeHtml(s.phone)}"></div>
         <div class="field"><label>State</label><select id="ep-agentid">
           <option value="">-- Select --</option>
           ${MALAYSIA_STATES.map(st=>`<option ${s.agentId===st?'selected':''}>${st}</option>`).join('')}
         </select></div>
+        <div class="field"><label>Phone</label><input id="ep-phone" value="${escapeHtml(s.phone)}"></div>
         <div class="field"><label>Team / Leader</label><input id="ep-leader" value="${escapeHtml(s.leader||'')}"></div>
         <div class="field"><label>Notes</label><input id="ep-notes" value="${escapeHtml(s.notes||'')}"></div>
         <button class="btn btn-amber" style="width:100%;" onclick="saveEditPending('${studentId}')">Save Changes</button>
@@ -2679,7 +2679,7 @@ async function exportExcel(){
   const ranking = await loadRanking(S.currentBatchId);
   const wb = XLSX.utils.book_new();
 
-  const roster = data.students.map(s=>({ Name:s.name, Phone:s.phone, 'State':s.agentId||'', 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
+  const roster = data.students.map(s=>({ Name:s.name, 'State':s.agentId||'', Phone:s.phone, 'Team/Leader':s.leader||'', Status: (s.status||'approved'), 'Registered On': fmtDate(s.registeredAt) }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(roster.length?roster:[{'Name':''}]), 'Roster');
 
   const attRows = approvedStudents.map(s=>{
