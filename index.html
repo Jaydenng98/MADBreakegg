@@ -862,7 +862,7 @@ async function submitPublicRegistration(batchId){
   const leader = document.getElementById('pr-leader').value.trim();
   const notes = document.getElementById('pr-notes').value.trim();
   const errEl = document.getElementById('pr-err');
-  if(!name || !phone){ errEl.textContent = 'Please fill in at least your name and phone number'; errEl.style.display='block'; return; }
+  if(!name || !phone || !agentId){ errEl.textContent = 'Please fill in your name, phone number and state'; errEl.style.display='block'; return; }
   const data = await loadBatchData(batchId);
   if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){
     errEl.textContent = 'This phone number has already registered for this batch';
@@ -1019,6 +1019,7 @@ async function renderView(){
     if(S.isAdmin){
       if(S.view==='dashboard') await viewDashboard(c);
       else if(S.view==='batches') await viewBatches(c);
+      else if(S.view==='batch-members') await viewBatchMembers(c);
       else if(S.view==='registration') await viewRegistration(c);
       else if(S.view==='materials') await viewMaterials(c);
       else if(S.view==='attendance') await viewAttendance(c);
@@ -1207,7 +1208,7 @@ async function viewBatches(c){
           <div class="batch-daterange">📅 ${fmtDateRange(b.startDate, b.endDate)}</div>
           <div class="batch-meta">${b.sessions} sessions · ${b.tests} tests</div>
           <div class="batch-meta-row">
-            <span class="batch-pill">👥 ${b.studentCount||0} members</span>
+            <button class="batch-pill" style="border:none;cursor:pointer;font-family:inherit;" onclick="goBatch('${b.id}','batch-members')">👥 ${b.studentCount||0} members</button>
             <span class="batch-pill">Code <span class="batch-code">${b.code}</span></span>
           </div>
 
@@ -1285,6 +1286,66 @@ async function openBatchModal(){
   `;
 }
 function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+async function viewBatchMembers(c){
+  S.batches = await loadBatches();
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(!batch){
+    c.innerHTML = `<div class="empty-state"><div class="big">👥</div>Please select a batch first.</div>`;
+    return;
+  }
+  c.innerHTML = `
+    <div class="view-head">
+      <div>
+        <button class="btn btn-sm" style="margin-bottom:10px;" onclick="switchView('batches')">← All Batches</button>
+        <h2 class="view-title">${escapeHtml(batch.name)} — Members</h2>
+        <p class="view-desc">Everyone who has registered for this batch, pending and approved</p>
+      </div>
+      <button class="btn btn-amber" onclick="goBatch('${batch.id}','registration')">Go to Registration Page</button>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <input id="bm-search" placeholder="Search by name or phone..." style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;" oninput="renderBatchMembersTable()">
+    </div>
+    <div id="batch-members-body"></div>
+  `;
+  document.getElementById('bm-search').addEventListener('keydown', e=>{ if(e.key==='Enter') e.preventDefault(); });
+  await renderBatchMembersTable();
+}
+
+async function renderBatchMembersTable(){
+  const body = document.getElementById('batch-members-body');
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(!batch || !body) return;
+  const data = await loadBatchData(S.currentBatchId);
+  const q = (document.getElementById('bm-search')?.value || '').trim().toLowerCase();
+  let students = data.students.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  if(q){
+    students = students.filter(s => s.name.toLowerCase().includes(q) || (s.phone||'').includes(q));
+  }
+  body.innerHTML = `
+    <div class="card" style="overflow-x:auto;">
+      <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
+      ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>State</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
+        <tbody>
+          ${students.map(s=>`
+            <tr>
+              <td>${escapeHtml(s.name)}</td>
+              <td>${escapeHtml(s.phone)}</td>
+              <td>${escapeHtml(s.email||'-')}</td>
+              <td>${escapeHtml(s.agentId||'-')}</td>
+              <td>${escapeHtml(s.leader||'-')}</td>
+              <td>${escapeHtml(s.notes||'-')}</td>
+              <td><span class="badge ${s.status==='pending'?'badge-cancelled':s.status==='rejected'?'badge-cancelled':'badge-active'}">${escapeHtml(s.status||'approved')}</span></td>
+              <td>${fmtDate(s.registeredAt)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+}
 
 async function openEditBatchModal(batchId){
   const batches = await loadBatches();
@@ -1432,13 +1493,13 @@ async function renderRegBody(){
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">Member Access Link (backup, with password)</h3>
+      <h3 style="margin-top:0;">Member Access Link (backup)</h3>
       <div class="btn-row" style="align-items:center;">
         <input readonly value="${accessLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
         <button class="btn btn-sm" onclick="copyRegLink('${accessLink}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link to sign in (password or Guest) and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here.')">Show QR</button>
+        <button class="btn btn-sm" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link, then enter their phone number to sign in and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here, no password needed.')">Show QR</button>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Old-style link that asks for phone + password — keep as a fallback in case the Quick Access list ever gets too long to scroll through.</p>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Same idea as Quick Access, but the member types their phone number instead of tapping their name from a list — handy as a fallback if the Quick Access list ever gets too long to scroll through.</p>
     </div>
 
     <div class="tab-strip">
@@ -1494,7 +1555,7 @@ async function bulkAddStudents(){
 
     // Skip an obvious header row
     if(name.toLowerCase()==='name' && phone.toLowerCase().includes('phone')) continue;
-    if(!name || !phone){ skipped++; continue; }
+    if(!name || !phone || !state){ skipped++; continue; }
     const normPhone = phone.replace(/\s/g,'');
     if(existingPhones.has(normPhone)){ skipped++; continue; }
 
@@ -1513,7 +1574,7 @@ async function bulkAddStudents(){
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   if(added>0) await logNote(S.currentBatchId, batch.name, 'register', `Bulk-added ${added} member(s) from pasted sheet`);
 
-  resultEl.innerHTML = `<b>${added}</b> added${skipped>0?`, <b>${skipped}</b> skipped (missing name/phone or already registered)`:''}.` +
+  resultEl.innerHTML = `<b>${added}</b> added${skipped>0?`, <b>${skipped}</b> skipped (missing name/phone/state or already registered)`:''}.` +
     (addedNames.length ? `<br><span style="color:var(--muted);">${addedNames.map(escapeHtml).join(', ')}</span>` : '');
   document.getElementById('bulk-add-text').value = '';
   toast(`${added} member(s) added`);
@@ -1691,7 +1752,7 @@ async function adminAddStudent(){
   const email = document.getElementById('ar-email').value.trim();
   const agentId = document.getElementById('ar-agentid').value.trim();
   const leader = document.getElementById('ar-leader').value.trim();
-  if(!name || !phone){ toast('Please fill in at least name and phone'); return; }
+  if(!name || !phone || !agentId){ toast('Please fill in name, phone and state'); return; }
   const data = await loadBatchData(S.currentBatchId);
   if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){ toast('This phone number is already registered'); return; }
   const newStudent = {
@@ -3121,13 +3182,26 @@ async function viewStuRanking(c){
     </div>` : ''}
     <div class="card" style="overflow-x:auto;">
       ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
-      <table>
-        <thead><tr><th>Rank</th><th>Name</th><th>Total</th></tr></thead>
+      <table style="min-width:900px;">
+        <thead><tr>
+          <th>Rank</th><th>Name</th>
+          <th>Appointment</th><th>Recruitment</th><th>Attendance</th>
+          <th>Reading Habit</th><th>Social Media</th>
+          <th>Presentation</th><th>Sales</th><th>Homework</th><th>Total</th>
+        </tr></thead>
         <tbody>
           ${rows.map((row,i)=>`
             <tr style="${row.student.id===S.student.studentId?'background:rgba(232,163,61,.12);':''}">
               <td><b>${i+1}</b></td>
               <td>${escapeHtml(row.student.name)}${row.student.id===S.student.studentId?' <span style="color:var(--amber-deep);font-weight:700;">(You)</span>':''}</td>
+              <td>${row.apptScore}</td>
+              <td>${row.recruitScore}</td>
+              <td>${row.attendanceScore}</td>
+              <td>${row.readingScore}</td>
+              <td>${row.socialScore}</td>
+              <td>${row.presentation}</td>
+              <td>${row.salesScore}</td>
+              <td>${row.homework}</td>
               <td><b>${row.total}</b></td>
             </tr>`).join('')}
         </tbody>
