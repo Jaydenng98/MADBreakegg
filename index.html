@@ -38,6 +38,41 @@
   .login-eyebrow{font-family:'Caveat',cursive;font-size:1.3rem;color:var(--amber-deep);margin:0 0 2px;}
   .login-title{font-size:1.6rem;font-weight:900;margin:0 0 22px;letter-spacing:.5px;}
   .role-toggle{display:flex;background:var(--paper-soft);border-radius:10px;padding:4px;margin-bottom:20px;}
+
+  /* ---------- Split login screen (green + gold) ---------- */
+  .login-split-card{width:100%;max-width:760px;min-height:520px;background:var(--paper);border-radius:20px;box-shadow:0 30px 70px rgba(0,0,0,.4);display:flex;overflow:hidden;position:relative;}
+  .login-decor-panel{position:relative;width:38%;min-width:220px;background:var(--board);overflow:hidden;flex-shrink:0;display:flex;flex-direction:column;justify-content:flex-end;padding:32px 24px;}
+  .login-decor-panel::before{content:'';position:absolute;top:-20%;left:-40%;width:160%;height:90%;background:linear-gradient(135deg, var(--amber) 0%, var(--amber-deep) 55%, transparent 56%);transform:rotate(-18deg);opacity:.9;}
+  .login-decor-panel::after{content:'';position:absolute;bottom:-30%;left:-50%;width:170%;height:80%;background:linear-gradient(135deg, rgba(245,243,234,.16) 0%, rgba(245,243,234,.16) 45%, transparent 46%);transform:rotate(-18deg);}
+  .decor-brand{position:relative;z-index:2;}
+  .decor-brand .login-eyebrow{color:var(--chalk);opacity:.9;}
+  .decor-tagline{color:var(--chalk);font-weight:800;font-size:1.15rem;line-height:1.35;margin:4px 0 0;}
+  .role-bridge-tab{position:absolute;top:50%;right:-1px;transform:translateY(-50%);z-index:5;background:var(--paper);border-radius:14px 0 0 14px;box-shadow:-8px 0 20px rgba(0,0,0,.12);overflow:hidden;display:flex;flex-direction:column;}
+  .role-bridge-tab button{padding:14px 22px;border:none;background:transparent;font-weight:800;font-size:.92rem;color:var(--muted);letter-spacing:.3px;white-space:nowrap;}
+  .role-bridge-tab button.active{background:var(--amber);color:var(--board-deep);}
+  .login-form-panel{flex:1;padding:44px 40px;display:flex;flex-direction:column;align-items:center;text-align:center;}
+  .login-avatar{width:78px;height:78px;border-radius:50%;background:linear-gradient(135deg, var(--amber) 0%, var(--board) 100%);display:flex;align-items:center;justify-content:center;margin-bottom:14px;box-shadow:0 10px 24px rgba(31,61,47,.25);}
+  .login-avatar svg{width:38px;height:38px;}
+  .login-form-panel .login-title{color:var(--board);margin-bottom:26px;text-align:center;}
+  .login-form-panel #login-form-area{width:100%;text-align:left;}
+  .login-form-panel .field{position:relative;margin-bottom:22px;}
+  .login-form-panel .field label{display:block;font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:6px;}
+  .login-form-panel .field input,.login-form-panel .field select{width:100%;border:none;border-bottom:2px solid var(--line);border-radius:0;padding:6px 4px 8px 26px;background:transparent;font-size:.95rem;}
+  .login-form-panel .field input:focus,.login-form-panel .field select:focus{outline:none;border-bottom-color:var(--amber);}
+  .login-form-panel .field::before{content:'';position:absolute;left:2px;bottom:9px;width:16px;height:16px;background-size:contain;background-repeat:no-repeat;opacity:.55;}
+  .login-form-panel .field:nth-of-type(1)::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231F3D2F' stroke-width='2'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 20c0-4 4-6 8-6s8 2 8 6'/%3E%3C/svg%3E");}
+  .login-form-panel .field:nth-of-type(2)::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231F3D2F' stroke-width='2'%3E%3Crect x='5' y='11' width='14' height='9' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E");}
+  .login-form-panel .btn-primary{width:100%;margin-top:6px;border-radius:24px;padding:13px 0;background:linear-gradient(135deg, var(--amber) 0%, var(--amber-deep) 100%);border:none;color:var(--board-deep);font-weight:800;font-size:.95rem;letter-spacing:.3px;box-shadow:0 10px 20px rgba(232,163,61,.35);}
+  .login-form-panel .login-sub{text-align:center;}
+  @media (max-width:640px){
+    .login-split-card{flex-direction:column;max-width:420px;min-height:0;}
+    .login-decor-panel{width:100%;min-height:0;padding:22px 24px 18px;}
+    .login-decor-panel::before,.login-decor-panel::after{display:none;}
+    .login-decor-panel{background:linear-gradient(120deg, var(--board) 0%, var(--board) 60%, var(--amber-deep) 150%);}
+    .role-bridge-tab{position:static;transform:none;flex-direction:row;border-radius:12px;margin-top:16px;box-shadow:0 6px 16px rgba(0,0,0,.2);width:100%;}
+    .role-bridge-tab button{flex:1;}
+    .login-form-panel{padding:32px 26px;}
+  }
   .role-toggle button{flex:1;padding:10px 0;border:none;border-radius:8px;background:transparent;font-weight:700;color:var(--muted);font-size:.95rem;}
   .role-toggle button.active{background:var(--board);color:var(--chalk);}
   .field{margin-bottom:14px;}
@@ -190,14 +225,23 @@
 <div id="db-status-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:12px 16px;font-size:.85rem;font-family:monospace;white-space:pre-wrap;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>
 
 <div id="login-screen">
-  <div class="login-card">
-    <p class="login-eyebrow">MAD Breakegg Program</p>
-    <h1 class="login-title">Sign In</h1>
-    <div class="role-toggle">
-      <button id="role-admin-btn" class="active" onclick="setLoginRole('admin')">Admin</button>
-      <button id="role-student-btn" onclick="setLoginRole('student')">Member</button>
+  <div class="login-split-card">
+    <div class="login-decor-panel">
+      <div class="decor-brand">
+        <p class="login-eyebrow">MAD Breakegg Program</p>
+      </div>
+      <div class="role-bridge-tab">
+        <button id="role-admin-btn" class="active" onclick="setLoginRole('admin')">Admin</button>
+        <button id="role-student-btn" onclick="setLoginRole('student')">Member</button>
+      </div>
     </div>
-    <div id="login-form-area"></div>
+    <div class="login-form-panel">
+      <div class="login-avatar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#F5F3EA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+      </div>
+      <h1 class="login-title">Sign In</h1>
+      <div id="login-form-area"></div>
+    </div>
   </div>
 </div>
 
@@ -993,7 +1037,7 @@ function renderSidebar(){
     </div>
     <div class="nav-drawer-mask ${S.navOpen?'open':''}" onclick="closeNavMenu()"></div>
     <div class="nav-drawer ${S.navOpen?'open':''}">
-      <div class="sidebar-brand">📋 MAD Breakegg Program<span>One batch every two weeks, all in order</span></div>
+      <div class="sidebar-brand">📋 MAD Breakegg Program</div>
       ${S.isAdmin ? `<button class="quick-add-btn" onclick="quickAddBatch()">+ New Batch</button>` : ''}
       ${navHtml}
       <div class="nav-spacer"></div>
@@ -2054,6 +2098,51 @@ async function addAttDate(){
   await renderAttBody();
 }
 
+async function deleteAttDate(dateStr){
+  if(!confirm(`Delete ${dateLabel(dateStr)}? This removes all attendance records for that date too.`)) return;
+  const data = await loadBatchData(S.currentBatchId);
+  data.attendanceDates = data.attendanceDates.filter(ds=>ds!==dateStr);
+  delete data.attendance[dateStr];
+  delete data.checkinCodes[dateStr];
+  await saveBatchData(S.currentBatchId, data);
+  if(S.attDate === dateStr) S.attDate = '';
+  toast('Date deleted');
+  await renderAttBody();
+}
+
+async function editAttDate(dateStr){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Session Date</h3>
+        <div class="field"><label>New Date</label><input type="date" id="edit-att-date" value="${dateStr}"></div>
+        <button class="btn btn-amber" style="width:100%;" onclick="saveEditAttDate('${dateStr}')">Save Changes</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveEditAttDate(oldDate){
+  const newDate = document.getElementById('edit-att-date').value;
+  if(!newDate){ toast('Pick a date'); return; }
+  if(newDate === oldDate){ closeModal(); return; }
+  const data = await loadBatchData(S.currentBatchId);
+  if(data.attendanceDates.includes(newDate)){
+    toast('That date already exists — delete the duplicate first');
+    return;
+  }
+  data.attendanceDates = data.attendanceDates.filter(ds=>ds!==oldDate);
+  data.attendanceDates.push(newDate);
+  data.attendanceDates.sort();
+  if(data.attendance[oldDate]){ data.attendance[newDate] = data.attendance[oldDate]; delete data.attendance[oldDate]; }
+  if(data.checkinCodes[oldDate]){ data.checkinCodes[newDate] = data.checkinCodes[oldDate]; delete data.checkinCodes[oldDate]; }
+  await saveBatchData(S.currentBatchId, data);
+  S.attDate = newDate;
+  closeModal();
+  toast('Date updated');
+  await renderAttBody();
+}
+
 async function renderAttBody(){
   const body = document.getElementById('att-body');
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>Please select a batch first.</div>`; return; }
@@ -2078,11 +2167,19 @@ async function renderAttBody(){
       <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">One link works for the whole batch, every date — share it once. Members pick the date themselves and tap their own name to check in.</p>
     </div>
     ${data.attendanceDates.length===0 ? `<div class="empty-state"><div class="big">🗓️</div>No dates added yet — add your first session date above.</div>` : `
-    <div class="tab-strip">${data.attendanceDates.map(ds=>`<button class="${ds===d?'active':''}" onclick="setAttDate('${ds}')">${dateLabel(ds)}</button>`).join('')}</div>
+    <div class="tab-strip">${data.attendanceDates.map(ds=>`
+      <span style="display:inline-flex;align-items:center;gap:2px;">
+        <button class="${ds===d?'active':''}" onclick="setAttDate('${ds}')">${dateLabel(ds)}</button>
+        <button class="btn-sm" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:.85rem;padding:0 4px;" onclick="deleteAttDate('${ds}')" title="Delete this date">✕</button>
+      </span>
+    `).join('')}</div>
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">Attendance Summary</h3>
-      <div class="stat-num">${presentCount} / ${approvedStudents.length}</div>
-      <div class="stat-label">Present on ${dateLabel(d)}</div>
+      <div class="btn-row" style="align-items:center;justify-content:space-between;">
+        <div><h3 style="margin:0;">Attendance Summary</h3>
+        <div class="stat-num">${presentCount} / ${approvedStudents.length}</div>
+        <div class="stat-label">Present on ${dateLabel(d)}</div></div>
+        <button class="btn btn-sm" onclick="editAttDate('${d}')">✏️ Edit Date</button>
+      </div>
     </div>
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Member Attendance — ${dateLabel(d)}</h3>
@@ -2191,7 +2288,7 @@ async function renderApptBody(){
             <td>${escapeHtml(a.origin)}</td>
             <td>${escapeHtml(a.closer)}</td>
             <td>${fmtDate(a.date)}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteAppointment('${a.id}')">Delete</button></td>
+            <td class="btn-row"><button class="btn btn-sm" onclick="editAppointmentAdmin('${a.id}')">Edit</button> <button class="btn btn-sm btn-danger" onclick="deleteAppointment('${a.id}')">Delete</button></td>
           </tr>`).join('')}
       </tbody></table>
     </div>
@@ -2237,6 +2334,46 @@ async function deleteAppointment(id){
   list = list.filter(a=>a.id!==id);
   await saveAppointments(S.currentBatchId, list);
   toast('Deleted');
+  await renderApptBody();
+}
+
+async function editAppointmentAdmin(id){
+  const data = await loadBatchData(S.currentBatchId);
+  const list = await loadAppointments(S.currentBatchId);
+  const a = list.find(x=>x.id===id);
+  if(!a) return;
+  const approved = data.students.filter(s=>(s.status||'approved')==='approved');
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Appointment</h3>
+        <div class="field"><label>Appointment Made By</label>
+          <select id="eappt-madeby">${approved.map(s=>`<option value="${s.id}" ${s.id===a.madeBy?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Client Name</label><input id="eappt-name" value="${escapeHtml(a.clientName)}"></div>
+        <div class="field"><label>Contact (Last 4)</label><input id="eappt-contact" maxlength="4" value="${escapeHtml(a.contact)}"></div>
+        <div class="field"><label>Leads Origin</label><input id="eappt-origin" value="${escapeHtml(a.origin)}"></div>
+        <div class="field"><label>Closer</label><input id="eappt-closer" value="${escapeHtml(a.closer)}"></div>
+        <div class="field"><label>Date</label><input type="date" id="eappt-date" value="${a.date||''}"></div>
+        <button class="btn btn-amber" style="width:100%;" onclick="saveEditAppointmentAdmin('${id}')">Save Changes</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveEditAppointmentAdmin(id){
+  const list = await loadAppointments(S.currentBatchId);
+  const a = list.find(x=>x.id===id);
+  if(!a) return;
+  a.madeBy = document.getElementById('eappt-madeby').value;
+  a.clientName = document.getElementById('eappt-name').value.trim();
+  a.contact = document.getElementById('eappt-contact').value.trim();
+  a.origin = document.getElementById('eappt-origin').value.trim();
+  a.closer = document.getElementById('eappt-closer').value.trim();
+  a.date = document.getElementById('eappt-date').value;
+  await saveAppointments(S.currentBatchId, list);
+  closeModal();
+  toast('Updated');
   await renderApptBody();
 }
 
@@ -2293,7 +2430,7 @@ async function renderRecruitBody(){
             <td>${escapeHtml(r.origin)}</td>
             <td>${escapeHtml(r.closer)}</td>
             <td>${fmtDate(r.date)}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteRecruit('${r.id}')">Delete</button></td>
+            <td class="btn-row"><button class="btn btn-sm" onclick="editRecruitAdmin('${r.id}')">Edit</button> <button class="btn btn-sm btn-danger" onclick="deleteRecruit('${r.id}')">Delete</button></td>
           </tr>`).join('')}
       </tbody></table>
     </div>
@@ -2323,6 +2460,46 @@ async function deleteRecruit(id){
   list = list.filter(r=>r.id!==id);
   await saveRecruitment(S.currentBatchId, list);
   toast('Deleted');
+  await renderRecruitBody();
+}
+
+async function editRecruitAdmin(id){
+  const data = await loadBatchData(S.currentBatchId);
+  const list = await loadRecruitment(S.currentBatchId);
+  const r = list.find(x=>x.id===id);
+  if(!r) return;
+  const approved = data.students.filter(s=>(s.status||'approved')==='approved');
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>Edit Recruit</h3>
+        <div class="field"><label>Recruitment Made By</label>
+          <select id="erec-madeby">${approved.map(s=>`<option value="${s.id}" ${s.id===r.madeBy?'selected':''}>${escapeHtml(s.name)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Recruit Name</label><input id="erec-name" value="${escapeHtml(r.clientName)}"></div>
+        <div class="field"><label>Contact (Last 4)</label><input id="erec-contact" maxlength="4" value="${escapeHtml(r.contact)}"></div>
+        <div class="field"><label>Leads Origin</label><input id="erec-origin" value="${escapeHtml(r.origin)}"></div>
+        <div class="field"><label>Closer</label><input id="erec-closer" value="${escapeHtml(r.closer)}"></div>
+        <div class="field"><label>Date</label><input type="date" id="erec-date" value="${r.date||''}"></div>
+        <button class="btn btn-amber" style="width:100%;" onclick="saveEditRecruitAdmin('${id}')">Save Changes</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveEditRecruitAdmin(id){
+  const list = await loadRecruitment(S.currentBatchId);
+  const r = list.find(x=>x.id===id);
+  if(!r) return;
+  r.madeBy = document.getElementById('erec-madeby').value;
+  r.clientName = document.getElementById('erec-name').value.trim();
+  r.contact = document.getElementById('erec-contact').value.trim();
+  r.origin = document.getElementById('erec-origin').value.trim();
+  r.closer = document.getElementById('erec-closer').value.trim();
+  r.date = document.getElementById('erec-date').value;
+  await saveRecruitment(S.currentBatchId, list);
+  closeModal();
+  toast('Updated');
   await renderRecruitBody();
 }
 
