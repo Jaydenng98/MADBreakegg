@@ -176,6 +176,15 @@
   .modal h3{margin-top:0;}
 
   .tab-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+
+  .link-row{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap;}
+  .link-row:last-child{border-bottom:none;padding-bottom:0;}
+  .link-row:first-child{padding-top:0;}
+  .link-row-label{flex:0 0 220px;min-width:180px;}
+  .link-row-label b{display:block;font-size:.9rem;margin-bottom:2px;}
+  .link-row-label span{display:block;font-size:.76rem;color:var(--muted);line-height:1.4;}
+  .link-row-actions{flex:1;display:flex;align-items:center;gap:8px;min-width:260px;}
+  .link-row-actions input{flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.78rem;}
   .tab-strip button{padding:7px 16px;border-radius:20px;border:1px solid var(--line);background:var(--paper);font-weight:700;font-size:.85rem;}
   .tab-strip button.active{background:var(--board);color:var(--chalk);border-color:var(--board);}
 
@@ -200,7 +209,7 @@
   .photo-thumb .photo-del{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:50%;width:24px;height:24px;font-size:.8rem;line-height:1;display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.85);transition:opacity .15s ease,transform .15s ease;}
   .photo-thumb:hover .photo-del,.photo-thumb:focus-within .photo-del{opacity:1;transform:scale(1);}
   @media (hover:none){.photo-thumb .photo-del{opacity:1;transform:scale(1);top:4px;right:4px;width:20px;height:20px;font-size:.7rem;background:rgba(0,0,0,.4);}}
-  .upload-drop{border:2px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--muted);font-size:.85rem;cursor:pointer;}
+  .upload-drop{display:block;border:2px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--muted);font-size:.85rem;cursor:pointer;}
   .upload-drop:hover{border-color:var(--amber);color:var(--amber-deep);}
   .img-modal img{max-width:90vw;max-height:85vh;border-radius:10px;display:block;}
   .timetable-row{display:grid;grid-template-columns:70px 1fr 1fr 2fr;gap:8px;align-items:center;margin-bottom:8px;}
@@ -404,7 +413,10 @@ function showRegQrModal(link, title, note){
         <h3>${escapeHtml(title)}</h3>
         <input readonly value="${link}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-bottom:12px;" onclick="this.select()">
         <div id="regqr" style="display:flex;justify-content:center;margin-bottom:10px;"></div>
-        <button class="btn btn-amber" onclick="copyRegLink('${link}')">Copy Link</button>
+        <div class="btn-row">
+          <button class="btn btn-amber" style="flex:1;" onclick="copyRegLink('${link}')">Copy Link</button>
+          <button class="btn" style="flex:1;" onclick="closeModal()">Close</button>
+        </div>
         <p style="font-size:.78rem;color:var(--muted);margin-top:10px;">${escapeHtml(note)}</p>
       </div>
     </div>
@@ -1194,7 +1206,7 @@ async function viewDashboard(c){
             <td>${escapeHtml(p.batchName)}</td>
             <td>${p.lastDate ? dateLabel(p.lastDate) : 'Never'}</td>
             <td><b style="color:var(--danger);">${p.daysSince}d</b></td>
-            <td><button class="btn btn-sm btn-danger" onclick="dashRemoveMember('${p.batchId}','${p.student.id}')">Remove</button></td>
+            <td><button class="btn btn-sm btn-danger" onclick="dashRemoveMember('${p.batchId}','${p.student.id}')">Kick Out</button></td>
           </tr>`).join('')}
       </tbody></table>`}
     </div>
@@ -1209,7 +1221,7 @@ async function dashApprove(batchId, studentId){
 
 async function dashRemoveMember(batchId, studentId){
   S.currentBatchId = batchId;
-  await removeStudent(studentId);
+  await kickStudent(studentId);
   await viewDashboard(document.getElementById('content'));
 }
 
@@ -1386,7 +1398,7 @@ async function renderBatchMembersTable(){
       <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
       ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
       <table>
-        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th></tr></thead>
+        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th><th></th></tr></thead>
         <tbody>
           ${students.map(s=>`
             <tr>
@@ -1395,14 +1407,27 @@ async function renderBatchMembersTable(){
               <td>${escapeHtml(s.phone)}</td>
               <td>${escapeHtml(s.leader||'-')}</td>
               <td>${escapeHtml(s.notes||'-')}</td>
-              <td><span class="badge ${s.status==='pending'?'badge-cancelled':s.status==='rejected'?'badge-cancelled':'badge-active'}">${escapeHtml(s.status||'approved')}</span></td>
+              <td><span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span></td>
               <td>${fmtDate(s.registeredAt)}</td>
+              <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
             </tr>
           `).join('')}
         </tbody>
       </table>`}
     </div>
   `;
+}
+
+async function removeBatchMember(studentId, name){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  if(!s) return;
+  s.status = 'kicked';
+  s.kickedAt = new Date().toISOString();
+  await saveBatchData(S.currentBatchId, data);
+  await recalcStudentCount(S.currentBatchId, data);
+  toast(`${name} kicked out — their record is kept, view it under Registration → Kicked Out`);
+  await renderBatchMembersTable();
 }
 
 async function openEditBatchModal(batchId){
@@ -1525,47 +1550,47 @@ async function renderRegBody(){
   const data = await loadBatchData(S.currentBatchId);
   const pending = data.students.filter(s=>(s.status||'approved')==='pending');
   const approved = data.students.filter(s=>(s.status||'approved')==='approved');
+  const kicked = data.students.filter(s=>s.status==='kicked');
   const link = buildRegistrationLink(batch);
   const accessLink = buildMemberAccessLink(batch);
   const quickLink = buildQuickAccessLink(batch);
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">Registration Link</h3>
-      <div class="btn-row" style="align-items:center;">
-        <input readonly value="${link}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
-        <button class="btn btn-sm" onclick="copyRegLink('${link}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="showRegQrModal('${link}')">Show QR</button>
+      <h3 style="margin-top:0;">Share Links</h3>
+      <div class="link-row">
+        <div class="link-row-label"><b>⚡ Quick Access</b><span>Post in the group chat — everyone opens the same link, taps their own name only when needed</span></div>
+        <div class="link-row-actions">
+          <input readonly value="${quickLink}" onclick="this.select()">
+          <button class="btn btn-sm" onclick="copyRegLink('${quickLink}')">Copy</button>
+          <button class="btn btn-sm" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">QR</button>
+        </div>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Share this link (or its QR code) on WhatsApp or social media — anyone can register without logging in. New sign-ups land in the Pending list below for your approval.</p>
-    </div>
-
-    <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">⚡ Quick Access Link (recommended)</h3>
-      <div class="btn-row" style="align-items:center;">
-        <input readonly value="${quickLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
-        <button class="btn btn-sm" onclick="copyRegLink('${quickLink}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">Show QR</button>
+      <div class="link-row">
+        <div class="link-row-label"><b>Registration</b><span>New sign-ups fill this form, land in Pending below for your approval</span></div>
+        <div class="link-row-actions">
+          <input readonly value="${link}" onclick="this.select()">
+          <button class="btn btn-sm" onclick="copyRegLink('${link}')">Copy</button>
+          <button class="btn btn-sm" onclick="showRegQrModal('${link}')">QR</button>
+        </div>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Post this ONE link in the batch group chat — everyone opens the same link and lands on the shared batch view. They only pick their name when they need to do something personal (Appointment, Recruitment, Check-in, My Score).</p>
-    </div>
-
-    <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">Member Access Link (backup)</h3>
-      <div class="btn-row" style="align-items:center;">
-        <input readonly value="${accessLink}" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:.8rem;" onclick="this.select()">
-        <button class="btn btn-sm" onclick="copyRegLink('${accessLink}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link, then enter their phone number to sign in and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here, no password needed.')">Show QR</button>
+      <div class="link-row">
+        <div class="link-row-label"><b>Member Access</b><span>Backup — member types their phone number instead of tapping their name from a list</span></div>
+        <div class="link-row-actions">
+          <input readonly value="${accessLink}" onclick="this.select()">
+          <button class="btn btn-sm" onclick="copyRegLink('${accessLink}')">Copy</button>
+          <button class="btn btn-sm" onclick="showRegQrModal('${accessLink}','Member Access Link & QR','Approved members use this link, then enter their phone number to sign in and access Appointment, Recruitment, Check-in and the Ranking Board — no registration form here, no password needed.')">QR</button>
+        </div>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">Same idea as Quick Access, but the member types their phone number instead of tapping their name from a list — handy as a fallback if the Quick Access list ever gets too long to scroll through.</p>
     </div>
 
     <div class="tab-strip">
       <button class="${S.regTab==='pending'?'active':''}" onclick="setRegTab('pending')">Pending (${pending.length})</button>
       <button class="${S.regTab==='approved'?'active':''}" onclick="setRegTab('approved')">Approved Members (${approved.length})</button>
+      <button class="${S.regTab==='kicked'?'active':''}" onclick="setRegTab('kicked')">Kicked Out (${kicked.length})</button>
     </div>
 
-    ${S.regTab==='pending' ? renderPendingTable(pending) : renderApprovedTable(approved)}
+    ${S.regTab==='pending' ? renderPendingTable(pending) : S.regTab==='kicked' ? renderKickedTable(kicked) : renderApprovedTable(approved)}
 
     ${S.regTab==='approved' ? `
     <div class="card" style="margin-top:16px;">
@@ -1700,7 +1725,26 @@ function renderApprovedTable(approved){
             <button class="btn btn-sm btn-amber" onclick="showDirectLinkModal('${s.id}')">Direct Link</button>
             <button class="btn btn-sm" onclick="resendCredentials('${s.id}')">Resend Login</button>
             <button class="btn btn-sm" onclick="transferStudent('${s.id}')">Transfer</button>
-            <button class="btn btn-sm btn-danger" onclick="removeStudent('${s.id}')">Remove</button>
+            <button class="btn btn-sm btn-danger" onclick="kickStudent('${s.id}')">Kick Out</button>
+          </td>
+        </tr>`).join('')}
+    </tbody></table>
+  </div>`;
+}
+
+function renderKickedTable(kicked){
+  if(kicked.length===0) return `<div class="card"><div class="empty-state">Nobody's been kicked out — everyone's record stays here if you ever do</div></div>`;
+  return `<div class="card" style="overflow-x:auto;">
+    <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Kicked On</th><th></th></tr></thead>
+    <tbody>
+      ${kicked.map(s=>`
+        <tr>
+          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.leader||'-')}</td>
+          <td>${fmtDate(s.kickedAt||s.approvedAt||s.registeredAt)}</td>
+          <td class="btn-row">
+            <button class="btn btn-sm btn-amber" onclick="reinstateStudent('${s.id}')">Reinstate</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteStudentPermanently('${s.id}')">Delete Permanently</button>
           </td>
         </tr>`).join('')}
     </tbody></table>
@@ -1853,12 +1897,47 @@ async function adminAddStudent(){
 }
 
 async function removeStudent(studentId){
-  if(!confirm('Are you sure you want to remove this member?')) return;
   const data = await loadBatchData(S.currentBatchId);
   data.students = data.students.filter(s=>s.id!==studentId);
   await saveBatchData(S.currentBatchId, data);
   await recalcStudentCount(S.currentBatchId, data);
   toast('Removed');
+  if(document.getElementById('reg-body')) await renderRegBody();
+}
+
+async function kickStudent(studentId){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  if(!s) return;
+  s.status = 'kicked';
+  s.kickedAt = new Date().toISOString();
+  await saveBatchData(S.currentBatchId, data);
+  await recalcStudentCount(S.currentBatchId, data);
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(batch) await logNote(S.currentBatchId, batch.name, 'kick', `${s.name} was kicked out (record kept)`);
+  toast(`${s.name} kicked out — their record is kept under "Kicked Out"`);
+  if(document.getElementById('reg-body')) await renderRegBody();
+}
+
+async function reinstateStudent(studentId){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  if(!s) return;
+  s.status = 'approved';
+  delete s.kickedAt;
+  await saveBatchData(S.currentBatchId, data);
+  await recalcStudentCount(S.currentBatchId, data);
+  toast(`${s.name} reinstated as an approved member`);
+  if(document.getElementById('reg-body')) await renderRegBody();
+}
+
+async function deleteStudentPermanently(studentId){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  data.students = data.students.filter(x=>x.id!==studentId);
+  await saveBatchData(S.currentBatchId, data);
+  await recalcStudentCount(S.currentBatchId, data);
+  toast(s ? `${s.name} deleted permanently` : 'Deleted permanently');
   if(document.getElementById('reg-body')) await renderRegBody();
 }
 
@@ -1932,8 +2011,18 @@ async function renderMaterialsBody(){
 
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Agenda</h3>
-      <textarea id="mat-agenda" rows="6" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="Write the batch agenda / plan here...">${escapeHtml(mat.agenda)}</textarea>
-      <button class="btn btn-amber" style="margin-top:10px;" onclick="saveAgenda()">Save Agenda</button>
+      <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Upload a photo of the agenda (printed schedule, whiteboard photo, etc.) instead of typing it out.</p>
+      ${mat.agendaPhoto ? `
+        <div class="photo-thumb" style="max-width:320px;aspect-ratio:auto;" onclick="openAgendaPhotoModal()">
+          <img src="${mat.agendaPhoto}" alt="agenda photo" style="width:100%;height:auto;display:block;">
+          <button class="photo-del" onclick="event.stopPropagation();deleteAgendaPhoto()">✕</button>
+        </div>
+      ` : `
+        <label class="upload-drop">
+          📷 Click to upload a photo of the agenda
+          <input type="file" accept="image/*" style="display:none;" onchange="handleAgendaPhotoUpload(this)">
+        </label>
+      `}
     </div>
 
     <div class="card">
@@ -2016,11 +2105,35 @@ async function openPhotoModal(photoId){
   `;
 }
 
-async function saveAgenda(){
+async function handleAgendaPhotoUpload(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  toast('Uploading agenda photo...');
   const mat = await loadBatchMaterials(S.currentBatchId);
-  mat.agenda = document.getElementById('mat-agenda').value;
+  try{
+    mat.agendaPhoto = await resizeImageFile(file, 1000);
+  }catch(e){ console.error(e); toast('Upload failed'); return; }
   await saveBatchMaterials(S.currentBatchId, mat);
-  toast('Agenda saved');
+  toast('Agenda photo saved');
+  await renderMaterialsBody();
+}
+
+async function deleteAgendaPhoto(){
+  const mat = await loadBatchMaterials(S.currentBatchId);
+  mat.agendaPhoto = null;
+  await saveBatchMaterials(S.currentBatchId, mat);
+  toast('Agenda photo removed');
+  await renderMaterialsBody();
+}
+
+async function openAgendaPhotoModal(){
+  const mat = await loadBatchMaterials(S.currentBatchId);
+  if(!mat.agendaPhoto) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="img-modal"><img src="${mat.agendaPhoto}" alt="agenda photo"></div>
+    </div>
+  `;
 }
 
 async function handleTop3Upload(input){
@@ -2099,7 +2212,6 @@ async function addAttDate(){
 }
 
 async function deleteAttDate(dateStr){
-  if(!confirm(`Delete ${dateLabel(dateStr)}? This removes all attendance records for that date too.`)) return;
   const data = await loadBatchData(S.currentBatchId);
   data.attendanceDates = data.attendanceDates.filter(ds=>ds!==dateStr);
   delete data.attendance[dateStr];
@@ -2243,7 +2355,7 @@ async function viewAppointments(c){
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
-      <div><h2 class="view-title">Appointments</h2><p class="view-desc">Log appointments made — 1 appointment = 2 points (min. 28 per person)</p></div>
+      <div><h2 class="view-title">Appointments</h2><p class="view-desc">Log appointments made for each member</p></div>
       ${batchSelectHtml(S.currentBatchId, 'changeApptBatch')}
     </div>
     <div id="appt-body"></div>
@@ -2385,7 +2497,7 @@ async function viewRecruitmentLog(c){
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
-      <div><h2 class="view-title">Recruitment</h2><p class="view-desc">Log recruits — 1 recruit = 3 points</p></div>
+      <div><h2 class="view-title">Recruitment</h2><p class="view-desc">Log recruits made for each member</p></div>
       ${batchSelectHtml(S.currentBatchId, 'changeRecruitBatch')}
     </div>
     <div id="recruit-body"></div>
@@ -2776,7 +2888,6 @@ async function viewNotifications(c){
     <div class="view-head">
       <div><h2 class="view-title">Notifications</h2><p class="view-desc">System activity log and reminders (shown in-app, not real SMS/email)</p></div>
       <div class="btn-row">
-        ${batchSelectHtml('', 'sendReminder')}
         <button class="btn btn-sm btn-danger" onclick="clearAllNotifications()">Clear All</button>
       </div>
     </div>
@@ -2806,14 +2917,6 @@ async function clearAllNotifications(){
   await viewNotifications(document.getElementById('content'));
 }
 
-async function sendReminder(batchId){
-  if(!batchId) return;
-  const batch = S.batches.find(b=>b.id===batchId);
-  await logNote(batchId, batch.name, 'reminder', `Admin sent a reminder to members in "${batch.name}"`);
-  toast('Reminder logged (in-app notification)');
-  await viewNotifications(document.getElementById('content'));
-}
-
 /* ------------------------------------------------------------
    7. Reports Reports
 ------------------------------------------------------------ */
@@ -2822,7 +2925,7 @@ async function viewReports(c){
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
-      <div><h2 class="view-title">Reports</h2><p class="view-desc">Export roster, attendance and marks reports</p></div>
+      <div><h2 class="view-title">Reports</h2><p class="view-desc">Export roster, attendance and ranking reports</p></div>
       ${batchSelectHtml(S.currentBatchId, 'changeReportBatch')}
     </div>
     <div id="report-body"></div>
@@ -2838,7 +2941,7 @@ async function renderReportBody(){
   body.innerHTML = `
     <div class="card">
       <h3 style="margin-top:0;">${escapeHtml(batch.name)}</h3>
-      <p style="color:var(--muted);font-size:.88rem;">Export the full roster, attendance record and marks table.</p>
+      <p style="color:var(--muted);font-size:.88rem;">Export the full roster, attendance record and ranking board.</p>
       <div class="btn-row">
         <button class="btn btn-amber" onclick="exportExcel()">📥 Export Excel</button>
         <button class="btn" onclick="printReport()">🖨️ Print / Save as PDF</button>
@@ -3080,7 +3183,11 @@ async function viewStuMaterials(c){
     </div>` : ''}
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Agenda</h3>
-      <p style="white-space:pre-wrap;font-size:.9rem;">${mat.agenda ? escapeHtml(mat.agenda) : '<span style="color:var(--muted);">No agenda posted yet.</span>'}</p>
+      ${mat.agendaPhoto ? `
+        <div class="photo-thumb" style="max-width:320px;aspect-ratio:auto;" onclick="openStuAgendaPhotoModal()">
+          <img src="${mat.agendaPhoto}" alt="agenda photo" style="width:100%;height:auto;display:block;">
+        </div>
+      ` : `<p style="color:var(--muted);font-size:.9rem;">No agenda posted yet.</p>`}
     </div>
     <div class="card">
       <h3 style="margin-top:0;">Timetable</h3>
@@ -3097,6 +3204,16 @@ async function openTop3ModalStu(){
   document.getElementById('modal-root').innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
       <div class="img-modal"><img src="${top3.poster}" alt="top3 poster"></div>
+    </div>
+  `;
+}
+
+async function openStuAgendaPhotoModal(){
+  const mat = await loadBatchMaterials(S.student.batchId);
+  if(!mat.agendaPhoto) return;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="img-modal"><img src="${mat.agendaPhoto}" alt="agenda photo"></div>
     </div>
   `;
 }
@@ -3155,7 +3272,7 @@ async function viewStuAppointments(c){
   const teamIds = getTeamMemberIds(data, me);
   const teamList = allAppts.filter(a=>teamIds.includes(a.madeBy));
   c.innerHTML = `
-    <div class="view-head"><div><h2 class="view-title">Appointments</h2><p class="view-desc">Log your own appointments — 1 appointment = 2 points</p></div></div>
+    <div class="view-head"><div><h2 class="view-title">Appointments</h2><p class="view-desc">Log your own appointments</p></div></div>
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">+ Add Appointment</h3>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
@@ -3273,7 +3390,7 @@ async function viewStuRecruitment(c){
   const teamIds = getTeamMemberIds(data, me);
   const teamList = allRecruits.filter(r=>teamIds.includes(r.madeBy));
   c.innerHTML = `
-    <div class="view-head"><div><h2 class="view-title">Recruitment</h2><p class="view-desc">Log your own recruits — 1 recruit = 3 points</p></div></div>
+    <div class="view-head"><div><h2 class="view-title">Recruitment</h2><p class="view-desc">Log your own recruits</p></div></div>
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">+ Add Recruit</h3>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
