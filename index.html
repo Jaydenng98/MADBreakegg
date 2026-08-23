@@ -864,7 +864,6 @@ async function showPublicQuickAccess(batchId){
       <div class="login-card" style="max-width:none;">
         <p class="login-eyebrow">MAD Breakegg Program</p>
         <h1 class="login-title" id="pbv-title">${escapeHtml(batch.name)}</h1>
-        <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Shared view — like an open Google Sheet, anyone with this link can see everything below, no login needed.</p>
         <div class="tab-strip" id="pbv-tabs">
           <button onclick="pbvSetTab('${batchId}','ranking')">Ranking Board</button>
           <button onclick="pbvSetTab('${batchId}','appointments')">Appointments</button>
@@ -933,10 +932,12 @@ async function renderPbvBody(batchId){
         <button class="btn btn-amber" onclick="pbvAddAppointment('${batchId}')">+ Add Appointment</button>
       </div>
       <div style="overflow-x:auto;">
-      ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No appointments logged yet.</p>` : `
       <table><thead><tr><th>Made By</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
       <tbody>
-        ${list.map(a=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td>
+        </tr>
+        ${list.length===0 ? '' : list.map(a=>`
           <tr>
             <td>${escapeHtml(studentNameById(data, a.madeBy))}</td>
             <td>${escapeHtml(a.clientName)}</td>
@@ -945,7 +946,7 @@ async function renderPbvBody(batchId){
             <td>${escapeHtml(a.closer)}</td>
             <td>${fmtDate(a.date)}</td>
           </tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table>
       </div>
     `;
     return;
@@ -971,10 +972,12 @@ async function renderPbvBody(batchId){
         <button class="btn btn-amber" onclick="pbvAddRecruit('${batchId}')">+ Add Recruit</button>
       </div>
       <div style="overflow-x:auto;">
-      ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No recruits logged yet.</p>` : `
       <table><thead><tr><th>Made By</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
       <tbody>
-        ${list.map(r=>`
+        <tr style="font-style:italic;color:var(--muted);background:var(--paper-soft);">
+          <td>E.g.</td><td>Jessica</td><td>1234</td><td>Jayden</td><td>-</td><td>-</td>
+        </tr>
+        ${list.length===0 ? '' : list.map(r=>`
           <tr>
             <td>${escapeHtml(studentNameById(data, r.madeBy))}</td>
             <td>${escapeHtml(r.clientName)}</td>
@@ -983,7 +986,7 @@ async function renderPbvBody(batchId){
             <td>${escapeHtml(r.closer)}</td>
             <td>${fmtDate(r.date)}</td>
           </tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table>
       </div>
     `;
     return;
