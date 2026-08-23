@@ -702,17 +702,22 @@ async function showPublicAttendance(batchId){
   }
   const today = new Date().toISOString().slice(0,10);
   S.paDate = data.attendanceDates.includes(today) ? today : data.attendanceDates[data.attendanceDates.length-1];
+  S.paJustMarked = null;
   document.getElementById('login-screen').innerHTML = `
     <div class="login-card">
       <p class="login-eyebrow">MAD Breakegg Program</p>
       <h1 class="login-title">${escapeHtml(batch.name)}</h1>
-      <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:12px;">Pick the date, then tap your own name to mark yourself present.</p>
-      <div class="field"><label>Session Date</label>
-        <select id="pa-date-select" onchange="paChangeDate('${batchId}', this.value)">
+      <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Pick the date, then tap your own name to mark yourself present.</p>
+      <div style="background:var(--amber);background:linear-gradient(135deg, rgba(232,163,61,.18), rgba(232,163,61,.28));border:1px solid rgba(232,163,61,.5);border-radius:12px;padding:14px 16px;margin-bottom:18px;">
+        <label style="display:block;font-size:.76rem;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--amber-deep);margin-bottom:6px;">📅 Session Date</label>
+        <select id="pa-date-select" onchange="paChangeDate('${batchId}', this.value)" style="width:100%;padding:12px 10px;font-size:1.05rem;font-weight:700;border:1px solid rgba(232,163,61,.6);border-radius:8px;background:var(--paper);">
           ${data.attendanceDates.slice().reverse().map(ds=>`<option value="${ds}" ${ds===S.paDate?'selected':''}>${dateLabel(ds)}</option>`).join('')}
         </select>
       </div>
-      <div id="pa-body"></div>
+      <div style="background:var(--paper-soft);border:1px solid var(--line);border-radius:12px;padding:14px 16px;">
+        <label style="display:block;font-size:.76rem;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px;">👋 Tap Your Name</label>
+        <div id="pa-body"></div>
+      </div>
     </div>
   `;
   await renderPublicAttendanceList(batchId);
@@ -720,6 +725,7 @@ async function showPublicAttendance(batchId){
 
 async function paChangeDate(batchId, date){
   S.paDate = date;
+  S.paJustMarked = null;
   await renderPublicAttendanceList(batchId);
 }
 
@@ -734,25 +740,97 @@ async function renderPublicAttendanceList(batchId){
   }
   body.innerHTML = approved.map(s=>{
     const present = !!(data.attendance[date] && data.attendance[date][s.id]);
-    return `<button class="btn" style="width:100%;margin-bottom:8px;text-align:left;${present?'opacity:.55;':''}" ${present?'disabled':''} onclick="submitPublicAttendance('${batchId}','${s.id}')">
+    return `<button class="btn" style="width:100%;margin-bottom:10px;text-align:left;padding:16px 18px;font-size:1.05rem;font-weight:700;min-height:52px;${present?'opacity:.55;':''}" onclick="${present?`showAlreadyMarkedModal('${escapeHtml(s.name).replace(/'/g,"\\'")}','${date}')`:`submitPublicAttendance('${batchId}','${s.id}')`}">
       ${escapeHtml(s.name)}${present?' ✓ Already marked':''}
     </button>`;
   }).join('');
+}
+
+function showAlreadyMarkedModal(name, date){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="text-align:center;">
+        <div style="font-size:2.4rem;margin-bottom:6px;">✓</div>
+        <h3 style="margin-top:0;">Already Marked</h3>
+        <p style="color:var(--muted);font-size:.9rem;">${escapeHtml(name)} is already marked present for ${dateLabel(date)} — no need to fill again.</p>
+        <button class="btn btn-amber" style="width:100%;margin-top:10px;" onclick="closeModal()">OK</button>
+      </div>
+    </div>
+  `;
 }
 
 async function submitPublicAttendance(batchId, studentId){
   const date = S.paDate;
   const data = await loadBatchData(batchId);
   if(!data.attendance[date]) data.attendance[date] = {};
-  if(data.attendance[date][studentId]){ toast('Already marked present'); return; }
+  if(data.attendance[date][studentId]){
+    const student = data.students.find(s=>s.id===studentId);
+    showAlreadyMarkedModal(student?student.name:'', date);
+    return;
+  }
   data.attendance[date][studentId] = true;
   await saveBatchData(batchId, data);
   const batches = await loadBatches();
   const batch = batches.find(b=>b.id===batchId);
   const student = data.students.find(s=>s.id===studentId);
   await logNote(batchId, batch?batch.name:'', 'attendance', `${student?student.name:'Someone'} marked present via attendance link (${dateLabel(date)})`);
-  toast(`Marked present for ${dateLabel(date)}!`);
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="text-align:center;">
+        <div style="font-size:2.4rem;margin-bottom:6px;">✅</div>
+        <h3 style="margin-top:0;">Marked Present</h3>
+        <p style="color:var(--muted);font-size:.9rem;">${escapeHtml(student?student.name:'')} is now marked present for ${dateLabel(date)}.</p>
+        <button class="btn btn-amber" style="width:100%;margin-top:10px;" onclick="closeModal()">OK</button>
+      </div>
+    </div>
+  `;
   await renderPublicAttendanceList(batchId);
+}
+
+async function pbvAddAppointment(batchId){
+  const madeBy = document.getElementById('pbv-appt-who').value;
+  const clientName = document.getElementById('pbv-appt-name').value.trim();
+  if(!madeBy){ toast('Please select your name'); return; }
+  if(!clientName){ toast('Please enter the client name'); return; }
+  const list = await loadAppointments(batchId);
+  list.push({
+    id: uid('ap'), madeBy, clientName,
+    contact: document.getElementById('pbv-appt-contact').value.trim(),
+    origin: document.getElementById('pbv-appt-origin').value.trim(),
+    closer: document.getElementById('pbv-appt-closer').value.trim(),
+    date: document.getElementById('pbv-appt-date').value
+  });
+  await saveAppointments(batchId, list);
+  const data = await loadBatchData(batchId);
+  const student = data.students.find(s=>s.id===madeBy);
+  const batches = await loadBatches();
+  const batch = batches.find(b=>b.id===batchId);
+  if(batch) await logNote(batchId, batch.name, 'appointment', `${student?student.name:'Someone'} added an appointment via shared link`);
+  toast('Appointment added!');
+  await renderPbvBody(batchId);
+}
+
+async function pbvAddRecruit(batchId){
+  const madeBy = document.getElementById('pbv-rec-who').value;
+  const clientName = document.getElementById('pbv-rec-name').value.trim();
+  if(!madeBy){ toast('Please select your name'); return; }
+  if(!clientName){ toast('Please enter the recruit name'); return; }
+  const list = await loadRecruitment(batchId);
+  list.push({
+    id: uid('rc'), madeBy, clientName,
+    contact: document.getElementById('pbv-rec-contact').value.trim(),
+    origin: document.getElementById('pbv-rec-origin').value.trim(),
+    closer: document.getElementById('pbv-rec-closer').value.trim(),
+    date: document.getElementById('pbv-rec-date').value
+  });
+  await saveRecruitment(batchId, list);
+  const data = await loadBatchData(batchId);
+  const student = data.students.find(s=>s.id===madeBy);
+  const batches = await loadBatches();
+  const batch = batches.find(b=>b.id===batchId);
+  if(batch) await logNote(batchId, batch.name, 'recruitment', `${student?student.name:'Someone'} added a recruit via shared link`);
+  toast('Recruit added!');
+  await renderPbvBody(batchId);
 }
 
 async function showPublicRegister(batchId){
@@ -838,7 +916,22 @@ async function renderPbvBody(batchId){
   if(S.pbvTab === 'appointments'){
     const data = await loadBatchData(batchId);
     const list = await loadAppointments(batchId);
+    const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
     body.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">+ Add Your Appointment</h3>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+          <div class="field"><label>Your Name</label>
+            <select id="pbv-appt-who"><option value="">-- Select --</option>${approved.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Client Name</label><input id="pbv-appt-name"></div>
+          <div class="field"><label>Contact (Last 4)</label><input id="pbv-appt-contact" maxlength="4"></div>
+          <div class="field"><label>Leads Origin</label><input id="pbv-appt-origin"></div>
+          <div class="field"><label>Closer</label><input id="pbv-appt-closer"></div>
+          <div class="field"><label>Date</label><input type="date" id="pbv-appt-date" value="${new Date().toISOString().slice(0,10)}"></div>
+        </div>
+        <button class="btn btn-amber" onclick="pbvAddAppointment('${batchId}')">+ Add Appointment</button>
+      </div>
       <div style="overflow-x:auto;">
       ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No appointments logged yet.</p>` : `
       <table><thead><tr><th>Made By</th><th>Client Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
@@ -861,7 +954,22 @@ async function renderPbvBody(batchId){
   if(S.pbvTab === 'recruitment'){
     const data = await loadBatchData(batchId);
     const list = await loadRecruitment(batchId);
+    const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
     body.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">+ Add Your Recruit</h3>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+          <div class="field"><label>Your Name</label>
+            <select id="pbv-rec-who"><option value="">-- Select --</option>${approved.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Recruit Name</label><input id="pbv-rec-name"></div>
+          <div class="field"><label>Contact (Last 4)</label><input id="pbv-rec-contact" maxlength="4"></div>
+          <div class="field"><label>Leads Origin</label><input id="pbv-rec-origin"></div>
+          <div class="field"><label>Closer</label><input id="pbv-rec-closer"></div>
+          <div class="field"><label>Date</label><input type="date" id="pbv-rec-date" value="${new Date().toISOString().slice(0,10)}"></div>
+        </div>
+        <button class="btn btn-amber" onclick="pbvAddRecruit('${batchId}')">+ Add Recruit</button>
+      </div>
       <div style="overflow-x:auto;">
       ${list.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No recruits logged yet.</p>` : `
       <table><thead><tr><th>Made By</th><th>Recruit Name</th><th>Contact</th><th>Leads Origin</th><th>Closer</th><th>Date</th></tr></thead>
