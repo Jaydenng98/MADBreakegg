@@ -3089,25 +3089,30 @@ async function downloadRankingBoardImage(){
   const keys = ['apptScore','recruitScore','attendanceScore','readingScore','socialScore','presentation','salesScore','homework'];
 
   const temp = document.createElement('div');
-  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#ffffff;padding:28px;font-family:Georgia, serif;';
+  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:1300px;background:#ffffff;padding:28px;font-family:Georgia, serif;box-sizing:border-box;';
   temp.innerHTML = `
     <h1 style="text-align:center;margin:0 0 4px;font-size:1.6rem;color:#1F3D2F;">${escapeHtml(batch.name)} — Ranking Board</h1>
     <p style="text-align:center;color:#777;margin:0 0 16px;font-size:.95rem;">${fmtDateRange(batch.startDate, batch.endDate)}</p>
     ${top3.poster ? `<div style="text-align:center;margin-bottom:18px;"><img src="${top3.poster}" style="max-width:280px;border-radius:8px;"></div>` : ''}
-    <table style="border-collapse:collapse;width:100%;font-size:.85rem;">
+    <table style="border-collapse:collapse;width:100%;font-size:.85rem;table-layout:fixed;">
+      <colgroup>
+        <col style="width:6%;"><col style="width:18%;">
+        ${cols.map(()=>'<col style="width:7.75%;">').join('')}
+        <col style="width:7%;">
+      </colgroup>
       <thead><tr style="background:#f5f3ea;">
-        <th style="border:1px solid #ddd;padding:8px;">Rank</th>
+        <th style="border:1px solid #ddd;padding:8px 4px;">Rank</th>
         <th style="border:1px solid #ddd;padding:8px;text-align:left;">Name</th>
-        ${cols.map(c=>`<th style="border:1px solid #ddd;padding:8px;">${c}</th>`).join('')}
-        <th style="border:1px solid #ddd;padding:8px;">Total</th>
+        ${cols.map(c=>`<th style="border:1px solid #ddd;padding:8px 4px;font-size:.72rem;">${c}</th>`).join('')}
+        <th style="border:1px solid #ddd;padding:8px 4px;">Total</th>
       </tr></thead>
       <tbody>
         ${rows.map((r,i)=>`
           <tr>
-            <td style="border:1px solid #ddd;padding:8px;text-align:center;">${i+1}</td>
-            <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(r.student.name)}</td>
-            ${keys.map(k=>`<td style="border:1px solid #ddd;padding:8px;text-align:center;">${r[k]}</td>`).join('')}
-            <td style="border:1px solid #ddd;padding:8px;text-align:center;font-weight:bold;">${r.total}</td>
+            <td style="border:1px solid #ddd;padding:8px 4px;text-align:center;">${i+1}</td>
+            <td style="border:1px solid #ddd;padding:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.student.name)}</td>
+            ${keys.map(k=>`<td style="border:1px solid #ddd;padding:8px 4px;text-align:center;">${r[k]}</td>`).join('')}
+            <td style="border:1px solid #ddd;padding:8px 4px;text-align:center;font-weight:bold;">${r.total}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -3117,7 +3122,7 @@ async function downloadRankingBoardImage(){
   document.body.appendChild(temp);
 
   try{
-    const canvas = await html2canvas(temp, { backgroundColor:'#ffffff', scale:2 });
+    const canvas = await html2canvas(temp, { backgroundColor:'#ffffff', scale:2, width:temp.scrollWidth, windowWidth:temp.scrollWidth });
     document.body.removeChild(temp);
     const dataUrl = canvas.toDataURL('image/png');
     const filename = batch.name.replace(/[^\w\u4e00-\u9fa5]/g,'_') + '_Ranking.png';
