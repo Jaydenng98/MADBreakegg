@@ -338,21 +338,39 @@ function loadSession(){
 // Note: 'shared' is kept as a parameter for compatibility with existing calls
 // but every row lives in the same app_storage table — this whole app is one
 // shared dataset (that's the point: Admin and every Member see the same data).
+// Serializes every read/write to the SAME storage key through one queue, so
+// two actions on the same batch (e.g. bulk-adding members, then quickly
+// approving someone else) can never race — the second one always starts
+// from the result of the first, instead of overwriting it with stale data.
+const __keyQueues = {};
+function withKeyQueue(key, fn){
+  const prev = __keyQueues[key] || Promise.resolve();
+  const run = prev.then(fn, fn);
+  __keyQueues[key] = run.catch(()=>{});
+  return run;
+}
+
 async function getJSON(key, shared){
-  try{
-    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).order('updated_at', { ascending: false }).limit(1);
-    if(error) throw error;
-    return (data && data.length) ? data[0].value : null;
-  }catch(e){ console.error('storage get failed', key, e); return null; }
+  return withKeyQueue(key, async () => {
+    try{
+      const { data, error } = await sb.from('app_storage').select('value').eq('key', key).order('updated_at', { ascending: false }).limit(1);
+      if(error) throw error;
+      return (data && data.length) ? data[0].value : null;
+    }catch(e){ console.error('storage get failed', key, e); return null; }
+  });
 }
 async function setJSON(key, value, shared){
-  try{
-    const { error } = await sb.from('app_storage').upsert({ key, value, shared: !!shared, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    if(error) throw error;
-  }catch(e){ console.error('storage set failed', key, e); toast('Save failed: ' + (e.message || 'unknown error')); }
+  return withKeyQueue(key, async () => {
+    try{
+      const { error } = await sb.from('app_storage').upsert({ key, value, shared: !!shared, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if(error) throw error;
+    }catch(e){ console.error('storage set failed', key, e); toast('Save failed: ' + (e.message || 'unknown error')); }
+  });
 }
 async function deleteJSON(key){
-  try{ await sb.from('app_storage').delete().eq('key', key); }catch(e){ console.error('storage delete failed', key, e); }
+  return withKeyQueue(key, async () => {
+    try{ await sb.from('app_storage').delete().eq('key', key); }catch(e){ console.error('storage delete failed', key, e); }
+  });
 }
 
 async function loadBatches(){ return (await getJSON('batches', true)) || []; }
@@ -363,7 +381,73 @@ async function loadBatchData(id){
   if(!d.attendanceDates) d.attendanceDates = [];
   return d;
 }
-async function saveBatchData(id, data){ await setJSON('batch-'+id, data, true); }
+
+// saveBatchData is called after a read-modify-write cycle (load the batch,
+// change something in memory, save it back). If two such cycles for the SAME
+// batch overlap — e.g. bulk-adding members, then quickly approving someone
+// else before the first save finishes — the second one can start from data
+// that doesn't yet include the first change, and silently erase it when it
+// writes. A single "check before writing" isn't quite enough (another writer
+// can still land in the gap between our check and our write), so after
+// writing we read back and confirm every student we know about actually
+// survived; if not, we re-merge against the latest copy and retry.
+async function __mergeFreshBatchData(key, data){
+  try{
+    const fresh = await getJSON(key, true);
+    if(fresh && Array.isArray(fresh.students) && Array.isArray(data.students)){
+      const localIds = new Set(data.students.map(s=>s.id));
+      const missing = fresh.students.filter(s => !localIds.has(s.id));
+      if(missing.length) data.students = data.students.concat(missing);
+    }
+    if(fresh && Array.isArray(fresh.attendanceDates) && Array.isArray(data.attendanceDates)){
+      const localDates = new Set(data.attendanceDates);
+      const missingDates = fresh.attendanceDates.filter(d => !localDates.has(d));
+      if(missingDates.length) data.attendanceDates = data.attendanceDates.concat(missingDates).sort();
+    }
+    if(fresh && fresh.attendance && typeof fresh.attendance === 'object'){
+      if(!data.attendance) data.attendance = {};
+      for(const ds of Object.keys(fresh.attendance)){
+        if(!data.attendance[ds]) data.attendance[ds] = {};
+        for(const sid of Object.keys(fresh.attendance[ds] || {})){
+          if(!(sid in data.attendance[ds])) data.attendance[ds][sid] = fresh.attendance[ds][sid];
+        }
+      }
+    }
+    if(fresh && fresh.checkinCodes && typeof fresh.checkinCodes === 'object'){
+      if(!data.checkinCodes) data.checkinCodes = {};
+      for(const ds of Object.keys(fresh.checkinCodes)){
+        if(!(ds in data.checkinCodes)) data.checkinCodes[ds] = fresh.checkinCodes[ds];
+      }
+    }
+  }catch(e){ console.error('pre-save merge check failed', e); }
+  return data;
+}
+
+async function saveBatchData(id, data){
+  const key = 'batch-'+id;
+  const maxAttempts = 4;
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
+    data = await __mergeFreshBatchData(key, data);
+    await setJSON(key, data, true);
+    if(attempt === maxAttempts - 1) return;
+    await new Promise(r => setTimeout(r, 70 + attempt*50));
+    let verify;
+    try{ verify = await getJSON(key, true); }catch(e){ return; }
+    const verifyIds = new Set((verify && verify.students || []).map(s=>s.id));
+    const studentsOk = data.students.every(s => verifyIds.has(s.id));
+    let attendanceOk = true;
+    if(data.attendance && verify && verify.attendance){
+      for(const ds of Object.keys(data.attendance)){
+        for(const sid of Object.keys(data.attendance[ds] || {})){
+          if(!(verify.attendance[ds] && sid in verify.attendance[ds])){ attendanceOk = false; break; }
+        }
+        if(!attendanceOk) break;
+      }
+    }
+    if(studentsOk && attendanceOk) return;
+    // someone else's write landed on top of ours in the meantime — merge and retry
+  }
+}
 
 async function loadBatchPhotos(id){ return (await getJSON('batch-photos-'+id, true)) || []; }
 async function saveBatchPhotos(id, arr){ await setJSON('batch-photos-'+id, arr, true); }
@@ -374,14 +458,62 @@ async function saveBatchMaterials(id, data){ await setJSON('batch-materials-'+id
 async function loadTop3(id){ return (await getJSON('batch-top3-'+id, true)) || { poster: null }; }
 async function saveTop3(id, data){ await setJSON('batch-top3-'+id, data, true); }
 
+// Same "merge fresh data in, then verify it stuck, retry if not" protection
+// used for batch students — applied generically here so Appointments,
+// Recruitment and Ranking Board entries can't get wiped out by an overlapping
+// save either (e.g. two members adding an appointment via the shared link at
+// nearly the same moment).
+async function __saveArrayWithMerge(key, arr){
+  const maxAttempts = 4;
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
+    try{
+      const fresh = await getJSON(key, true);
+      if(Array.isArray(fresh)){
+        const localIds = new Set(arr.map(x=>x.id));
+        const missing = fresh.filter(x => !localIds.has(x.id));
+        if(missing.length) arr = arr.concat(missing);
+      }
+    }catch(e){ console.error('merge check failed', key, e); }
+    await setJSON(key, arr, true);
+    if(attempt === maxAttempts - 1) return arr;
+    await new Promise(r => setTimeout(r, 70 + attempt*50));
+    let verify;
+    try{ verify = await getJSON(key, true); }catch(e){ return arr; }
+    const verifyIds = new Set((verify||[]).map(x=>x.id));
+    if(arr.every(x => verifyIds.has(x.id))) return arr;
+  }
+  return arr;
+}
+
+async function __saveObjectWithMerge(key, obj){
+  const maxAttempts = 4;
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
+    try{
+      const fresh = await getJSON(key, true);
+      if(fresh && typeof fresh === 'object'){
+        for(const k of Object.keys(fresh)){
+          if(!(k in obj)) obj[k] = fresh[k];
+        }
+      }
+    }catch(e){ console.error('merge check failed', key, e); }
+    await setJSON(key, obj, true);
+    if(attempt === maxAttempts - 1) return obj;
+    await new Promise(r => setTimeout(r, 70 + attempt*50));
+    let verify;
+    try{ verify = await getJSON(key, true); }catch(e){ return obj; }
+    if(Object.keys(obj).every(k => verify && (k in verify))) return obj;
+  }
+  return obj;
+}
+
 async function loadAppointments(id){ return (await getJSON('batch-appointments-'+id, true)) || []; }
-async function saveAppointments(id, arr){ await setJSON('batch-appointments-'+id, arr, true); }
+async function saveAppointments(id, arr){ await __saveArrayWithMerge('batch-appointments-'+id, arr); }
 
 async function loadRecruitment(id){ return (await getJSON('batch-recruitment-'+id, true)) || []; }
-async function saveRecruitment(id, arr){ await setJSON('batch-recruitment-'+id, arr, true); }
+async function saveRecruitment(id, arr){ await __saveArrayWithMerge('batch-recruitment-'+id, arr); }
 
 async function loadRanking(id){ return (await getJSON('batch-ranking-'+id, true)) || {}; }
-async function saveRanking(id, obj){ await setJSON('batch-ranking-'+id, obj, true); }
+async function saveRanking(id, obj){ await __saveObjectWithMerge('batch-ranking-'+id, obj); }
 
 async function loadPresentation(id){ return (await getJSON('batch-presentation-'+id, true)) || []; }
 async function savePresentation(id, arr){ await setJSON('batch-presentation-'+id, arr, true); }
