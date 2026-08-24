@@ -374,7 +374,29 @@ async function deleteJSON(key){
 }
 
 async function loadBatches(){ return (await getJSON('batches', true)) || []; }
-async function saveBatches(arr){ S.batches = arr; await setJSON('batches', arr, true); }
+async function saveBatches(arr){
+  S.batches = arr;
+  const key = 'batches';
+  const maxAttempts = 4;
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
+    try{
+      const fresh = await getJSON(key, true);
+      if(Array.isArray(fresh)){
+        const localIds = new Set(arr.map(b=>b.id));
+        const missing = fresh.filter(b => !localIds.has(b.id));
+        if(missing.length) arr = arr.concat(missing);
+      }
+    }catch(e){ console.error('merge check failed', key, e); }
+    await setJSON(key, arr, true);
+    S.batches = arr;
+    if(attempt === maxAttempts - 1) return;
+    await new Promise(r => setTimeout(r, 70 + attempt*50));
+    let verify;
+    try{ verify = await getJSON(key, true); }catch(e){ return; }
+    const verifyIds = new Set((verify||[]).map(b=>b.id));
+    if(arr.every(b => verifyIds.has(b.id))) return;
+  }
+}
 
 async function loadBatchData(id){
   const d = (await getJSON('batch-'+id, true)) || { students:[], attendance:{}, attendanceDates:[], checkinCodes:{}, marks:{} };
