@@ -870,6 +870,7 @@ async function showPublicAttendance(batchId){
       </div>
       <div style="background:var(--paper-soft);border:1px solid var(--line);border-radius:12px;padding:14px 16px;">
         <label style="display:block;font-size:.76rem;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px;">👋 Tap Your Name</label>
+        <input id="pa-search" placeholder="🔍 Search your name..." oninput="onPaSearch('${batchId}', this.value)" style="width:100%;padding:12px 10px;font-size:1rem;border:1px solid var(--line);border-radius:8px;margin-bottom:12px;">
         <div id="pa-body"></div>
       </div>
     </div>
@@ -883,13 +884,28 @@ async function paChangeDate(batchId, date){
   await renderPublicAttendanceList(batchId);
 }
 
+function onPaSearch(batchId, value){
+  S.paSearch = value;
+  renderPublicAttendanceList(batchId);
+  setTimeout(()=>{
+    const el = document.getElementById('pa-search');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 0);
+}
+
 async function renderPublicAttendanceList(batchId){
   const data = await loadBatchData(batchId);
   const date = S.paDate;
   const body = document.getElementById('pa-body');
-  const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
-  if(approved.length===0){
+  const allApproved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
+  const paQ = (S.paSearch || '').trim().toLowerCase();
+  const approved = paQ ? allApproved.filter(s=>s.name.toLowerCase().includes(paQ)) : allApproved;
+  if(allApproved.length===0){
     body.innerHTML = `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>`;
+    return;
+  }
+  if(approved.length===0){
+    body.innerHTML = `<p style="color:var(--muted);font-size:.85rem;">No matching names.</p>`;
     return;
   }
   body.innerHTML = approved.map(s=>{
@@ -1037,6 +1053,24 @@ function pbvSetTab(batchId, tab){
   renderPbvBody(batchId);
 }
 
+function onPbvRankSearch(batchId, value){
+  S.pbvRankSearch = value;
+  renderPbvBody(batchId);
+  setTimeout(()=>{
+    const el = document.getElementById('pbv-rank-search');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 0);
+}
+
+function onPbvAttSearch(batchId, value){
+  S.pbvAttSearch = value;
+  renderPbvBody(batchId);
+  setTimeout(()=>{
+    const el = document.getElementById('pbv-att-search');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 0);
+}
+
 async function renderPbvBody(batchId){
   const body = document.getElementById('pbv-body');
   const keys = ['ranking','appointments','recruitment','attendance'];
@@ -1045,8 +1079,10 @@ async function renderPbvBody(batchId){
   });
 
   if(S.pbvTab === 'ranking'){
-    const rows = await computeRankingRows(batchId);
+    const allRows = await computeRankingRows(batchId);
     const top3 = await loadTop3(batchId);
+    const pbvQ = (S.pbvRankSearch || '').trim().toLowerCase();
+    const rows = pbvQ ? allRows.filter(r=>r.student.name.toLowerCase().includes(pbvQ)) : allRows;
     body.innerHTML = `
       ${top3.poster ? `
       <div style="margin-bottom:16px;">
@@ -1055,11 +1091,12 @@ async function renderPbvBody(batchId){
           <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
         </div>
       </div>` : ''}
+      <input id="pbv-rank-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.pbvRankSearch||'')}" oninput="onPbvRankSearch('${batchId}', this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;">
       <div style="overflow-x:auto;">
-      ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No approved members yet.</p>` : `
+      ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">${pbvQ ? 'No matching names.' : 'No approved members yet.'}</p>` : `
       <table>
         <thead><tr><th>Rank</th><th>Name</th><th>Total</th></tr></thead>
-        <tbody>${rows.map((r,i)=>`<tr><td><b>${i+1}</b></td><td>${escapeHtml(r.student.name)}</td><td><b>${r.total}</b></td></tr>`).join('')}</tbody>
+        <tbody>${rows.map(r=>{ const i = allRows.indexOf(r); return `<tr><td><b>${i+1}</b></td><td>${escapeHtml(r.student.name)}</td><td><b>${r.total}</b></td></tr>`; }).join('')}</tbody>
       </table>`}
       </div>
     `;
@@ -1148,11 +1185,14 @@ async function renderPbvBody(batchId){
 
   if(S.pbvTab === 'attendance'){
     const data = await loadBatchData(batchId);
-    const approved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
+    const allApproved = data.students.filter(s=>(s.status||'approved')==='approved').sort((a,b)=>a.name.localeCompare(b.name));
     const dates = data.attendanceDates;
+    const attTabQ = (S.pbvAttSearch || '').trim().toLowerCase();
+    const approved = attTabQ ? allApproved.filter(s=>s.name.toLowerCase().includes(attTabQ)) : allApproved;
     body.innerHTML = `
+      ${allApproved.length===0 ? '' : `<input id="pbv-att-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.pbvAttSearch||'')}" oninput="onPbvAttSearch('${batchId}', this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;">`}
       <div style="overflow-x:auto;">
-      ${dates.length===0 || approved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">Nothing to show yet.</p>` : `
+      ${dates.length===0 || allApproved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">Nothing to show yet.</p>` : approved.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">No matching names.</p>` : `
       <table><thead><tr><th>Name</th>${dates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}</tr></thead>
       <tbody>
         ${approved.map(s=>`
@@ -2538,6 +2578,8 @@ async function renderAttBody(){
   const d = S.attDate;
   const attForDate = d ? (data.attendance[d] || {}) : {};
   const presentCount = Object.values(attForDate).filter(Boolean).length;
+  const attQ = (S.attSearch || '').trim().toLowerCase();
+  const filteredStudents = attQ ? approvedStudents.filter(s=>s.name.toLowerCase().includes(attQ)) : approvedStudents;
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:14px;">
@@ -2566,11 +2608,14 @@ async function renderAttBody(){
       </div>
     </div>
     <div class="card" style="margin-bottom:16px;">
+      <input id="att-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.attSearch||'')}" oninput="onAttSearch(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
+    </div>
+    <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Member Attendance — ${dateLabel(d)}</h3>
-      ${approvedStudents.length===0 ? `<div class="empty-state">No members</div>` : `
+      ${filteredStudents.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
       <table><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        ${approvedStudents.map(s=>{
+        ${filteredStudents.map(s=>{
           const present = !!attForDate[s.id];
           return `<tr>
             <td>${escapeHtml(s.name)}</td>
@@ -2583,10 +2628,10 @@ async function renderAttBody(){
     </div>
     <div class="card" style="overflow-x:auto;">
       <h3 style="margin-top:0;">Full Attendance Grid</h3>
-      ${approvedStudents.length===0 ? `<div class="empty-state">No members</div>` : `
+      ${filteredStudents.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
       <table><thead><tr><th>Name</th>${data.attendanceDates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}</tr></thead>
       <tbody>
-        ${approvedStudents.map(s=>`
+        ${filteredStudents.map(s=>`
           <tr>
             <td>${escapeHtml(s.name)}</td>
             ${data.attendanceDates.map(ds=>{
@@ -2601,6 +2646,15 @@ async function renderAttBody(){
 }
 
 function setAttDate(ds){ S.attDate = ds; renderAttBody(); }
+
+function onAttSearch(value){
+  S.attSearch = value;
+  renderAttBody();
+  setTimeout(()=>{
+    const el = document.getElementById('att-search');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 0);
+}
 
 async function regenCode(d){
   const data = await loadBatchData(S.currentBatchId);
@@ -3009,6 +3063,15 @@ async function viewRanking(c){
 }
 async function changeRankingBatch(id){ S.currentBatchId = id; await renderRankingBody(); }
 
+function onRankingSearch(value){
+  S.rankingSearch = value;
+  renderRankingBody();
+  setTimeout(()=>{
+    const el = document.getElementById('ranking-search');
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 0);
+}
+
 async function computeRankingRows(batchId){
   const data = await loadBatchData(batchId);
   const ranking = await loadRanking(batchId);
@@ -3032,8 +3095,10 @@ async function computeRankingRows(batchId){
 async function renderRankingBody(){
   const body = document.getElementById('ranking-body');
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🏆</div>Please select a batch first.</div>`; return; }
-  const rows = await computeRankingRows(S.currentBatchId);
+  const allRows = await computeRankingRows(S.currentBatchId);
   const top3 = await loadTop3(S.currentBatchId);
+  const q = (S.rankingSearch || '').trim().toLowerCase();
+  const rows = q ? allRows.filter(r => r.student.name.toLowerCase().includes(q)) : allRows;
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
@@ -3052,8 +3117,11 @@ async function renderRankingBody(){
         <p style="color:var(--muted);font-size:.8rem;margin-top:8px;">Nothing posted yet — members won't see this section until you upload something.</p>
       `}
     </div>
+    <div class="card" style="margin-bottom:16px;">
+      <input id="ranking-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.rankingSearch||'')}" oninput="onRankingSearch(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
+    </div>
     <div class="card" style="overflow-x:auto;">
-      ${rows.length===0 ? `<div class="empty-state">No members registered in this batch yet</div>` : `
+      ${rows.length===0 ? `<div class="empty-state">${q ? 'No matching members' : 'No members registered in this batch yet'}</div>` : `
       <table class="ranking-compact" style="width:100%;">
         <thead><tr>
           <th>Rank</th><th>Name</th>
@@ -3063,7 +3131,9 @@ async function renderRankingBody(){
           <th>Homework</th><th>Total</th>
         </tr></thead>
         <tbody>
-          ${rows.map((row,i)=>`
+          ${rows.map((row)=>{
+            const i = allRows.indexOf(row);
+            return `
             <tr>
               <td><b>${i+1}</b></td>
               <td><b>${escapeHtml(row.student.name)}</b></td>
@@ -3076,7 +3146,7 @@ async function renderRankingBody(){
               <td><input type="number" min="0" class="rank-input" value="${row.salesScore}" onblur="updateRankingField('${row.student.id}','sales',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)"></td>
               <td><b style="font-size:1.1rem;">${row.total}</b></td>
-            </tr>`).join('')}
+            </tr>`;}).join('')}
         </tbody>
       </table>`}
     </div>
