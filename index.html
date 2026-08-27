@@ -2950,13 +2950,95 @@ async function viewPresentation(c){
   c.innerHTML = `
     <div class="view-head">
       <div><h2 class="view-title">Presentation</h2><p class="view-desc">Which senior is handling each member's presentation</p></div>
-      ${batchSelectHtml(S.currentBatchId, 'changePresoBatch')}
+      <div class="btn-row">
+        <button class="btn btn-amber" onclick="downloadPresentationImage()">📸 Save as Image</button>
+        ${batchSelectHtml(S.currentBatchId, 'changePresoBatch')}
+      </div>
     </div>
     <div id="preso-body"></div>
   `;
   await renderPresoBody();
 }
 async function changePresoBatch(id){ S.currentBatchId = id; await renderPresoBody(); }
+
+async function downloadPresentationImage(){
+  if(!window.html2canvas){ toast('Image library still loading — try again in a moment'); return; }
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(!batch) return;
+  const groups = await loadPresentation(S.currentBatchId);
+  if(groups.length===0){ toast('No seniors added yet'); return; }
+  toast('Building image...');
+
+  const temp = document.createElement('div');
+  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:820px;background:#F5F3EA;padding:32px;font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,sans-serif;';
+  temp.innerHTML = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <p style="margin:0;font-size:.8rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#C67F1F;">MAD Breakegg Program</p>
+      <h1 style="margin:4px 0 2px;font-size:1.7rem;color:#1F3D2F;font-weight:900;">${escapeHtml(batch.name)} · Presentation Assignments</h1>
+      <p style="color:#8a8577;margin:0;font-size:.9rem;">${fmtDateRange(batch.startDate, batch.endDate)}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      ${groups.map(g=>`
+        <div style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(31,61,47,.12);break-inside:avoid;">
+          <div style="background:#1F3D2F;padding:12px 18px;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:1.1rem;">🎤</span>
+            <span style="font-weight:800;font-size:1.05rem;color:#F5F3EA;">${escapeHtml(g.senior)}</span>
+          </div>
+          ${g.members.length===0 ? `<div style="padding:20px 18px;color:#aaa;font-size:.85rem;text-align:center;">No one assigned yet</div>` : `
+          <div style="padding:6px 0;">
+            ${g.members.map((m,i)=>`
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;${i%2===1?'background:#FBF9F2;':''}">
+                <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#E8A33D,#1F3D2F);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0;">${escapeHtml((m.name||'?').charAt(0).toUpperCase())}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:700;font-size:.92rem;color:#1E2420;">${escapeHtml(m.name)}</div>
+                  ${m.location ? `<div style="font-size:.78rem;color:#8a8577;">📍 ${escapeHtml(m.location)}</div>` : ''}
+                </div>
+                <div style="font-size:.8rem;color:#555;white-space:nowrap;">${escapeHtml(m.phone||'-')}</div>
+              </div>
+            `).join('')}
+          </div>`}
+        </div>
+      `).join('')}
+    </div>
+    <p style="text-align:center;color:#b5b0a0;font-size:.72rem;margin-top:22px;">Generated ${new Date().toLocaleString()}</p>
+  `;
+  document.body.appendChild(temp);
+
+  try{
+    const canvas = await html2canvas(temp, { backgroundColor:'#ffffff', scale:2, width:temp.scrollWidth, windowWidth:temp.scrollWidth });
+    document.body.removeChild(temp);
+    const dataUrl = canvas.toDataURL('image/png');
+    const filename = batch.name.replace(/[^\w\u4e00-\u9fa5]/g,'_') + '_Presentation.png';
+    showPresentationImageModal(dataUrl, filename);
+  }catch(e){
+    if(temp.parentNode) document.body.removeChild(temp);
+    console.error(e);
+    toast('Could not generate image');
+  }
+}
+
+function showPresentationImageModal(dataUrl, filename){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:500px;text-align:center;">
+        <h3 style="margin-top:0;">Presentation Assignments Image</h3>
+        <img src="${dataUrl}" style="width:100%;border-radius:8px;border:1px solid var(--line);margin-bottom:14px;">
+        <p style="color:var(--muted);font-size:.8rem;margin-bottom:14px;">On your phone: press and hold the image above to save or share it directly to WhatsApp.</p>
+        <div class="btn-row">
+          <a class="btn btn-amber" style="flex:1;text-decoration:none;text-align:center;" href="${dataUrl}" download="${filename}">Download</a>
+          <button class="btn" style="flex:1;" onclick="shareGenericImage('${filename}')">Share</button>
+        </div>
+        <button class="btn" style="width:100%;margin-top:10px;" onclick="closeModal()">Close</button>
+      </div>
+    </div>
+  `;
+  S.lastRankingImageUrl = dataUrl;
+  S.lastRankingImageName = filename;
+}
+
+async function shareGenericImage(filename){
+  await shareRankingImage();
+}
 
 async function renderPresoBody(){
   const body = document.getElementById('preso-body');
