@@ -413,12 +413,15 @@ async function loadBatchData(id){
 // can still land in the gap between our check and our write), so after
 // writing we read back and confirm every student we know about actually
 // survived; if not, we re-merge against the latest copy and retry.
-async function __mergeFreshBatchData(key, data){
+async function __mergeFreshBatchData(key, data, excludeStudentIds){
+  const excludeSet = excludeStudentIds instanceof Set ? excludeStudentIds : new Set(excludeStudentIds||[]);
   try{
     const fresh = await getJSON(key, true);
     if(fresh && Array.isArray(fresh.students) && Array.isArray(data.students)){
       const localIds = new Set(data.students.map(s=>s.id));
-      const missing = fresh.students.filter(s => !localIds.has(s.id));
+      // Don't resurrect a student we deliberately just deleted/kicked in this
+      // very save — only fold in ones we genuinely don't know about yet.
+      const missing = fresh.students.filter(s => !localIds.has(s.id) && !excludeSet.has(s.id));
       if(missing.length) data.students = data.students.concat(missing);
     }
     if(fresh && Array.isArray(fresh.attendanceDates) && Array.isArray(data.attendanceDates)){
@@ -445,11 +448,12 @@ async function __mergeFreshBatchData(key, data){
   return data;
 }
 
-async function saveBatchData(id, data){
+async function saveBatchData(id, data, opts){
   const key = 'batch-'+id;
+  const excludeStudentIds = new Set((opts && opts.excludeStudentIds) || []);
   const maxAttempts = 4;
   for(let attempt = 0; attempt < maxAttempts; attempt++){
-    data = await __mergeFreshBatchData(key, data);
+    data = await __mergeFreshBatchData(key, data, excludeStudentIds);
     await setJSON(key, data, true);
     if(attempt === maxAttempts - 1) return;
     await new Promise(r => setTimeout(r, 70 + attempt*50));
@@ -2151,9 +2155,8 @@ async function doTransfer(studentId){
   const s = data.students.find(x=>x.id===studentId);
   if(!s) return;
   data.students = data.students.filter(x=>x.id!==studentId);
-  await saveBatchData(S.currentBatchId, data);
+  await saveBatchData(S.currentBatchId, data, { excludeStudentIds: [studentId] });
   await recalcStudentCount(S.currentBatchId, data);
-
   const targetData = await loadBatchData(targetId);
   targetData.students.push({ ...s, id: uid('s'), status:'pending', password:null, registeredAt: new Date().toISOString(), approvedAt:null });
   await saveBatchData(targetId, targetData);
@@ -2211,7 +2214,7 @@ async function adminAddStudent(){
 async function removeStudent(studentId){
   const data = await loadBatchData(S.currentBatchId);
   data.students = data.students.filter(s=>s.id!==studentId);
-  await saveBatchData(S.currentBatchId, data);
+  await saveBatchData(S.currentBatchId, data, { excludeStudentIds: [studentId] });
   await recalcStudentCount(S.currentBatchId, data);
   toast('Removed');
   if(document.getElementById('reg-body')) await renderRegBody();
@@ -2229,6 +2232,8 @@ async function kickStudent(studentId){
   if(batch) await logNote(S.currentBatchId, batch.name, 'kick', `${s.name} was kicked out (record kept)`);
   toast(`${s.name} kicked out — their record is kept under "Kicked Out"`);
   if(document.getElementById('reg-body')) await renderRegBody();
+  if(document.getElementById('ranking-body')) await renderRankingBody();
+  if(document.getElementById('batch-members-body')) await renderBatchMembersTable();
 }
 
 async function reinstateStudent(studentId){
@@ -2247,7 +2252,7 @@ async function deleteStudentPermanently(studentId){
   const data = await loadBatchData(S.currentBatchId);
   const s = data.students.find(x=>x.id===studentId);
   data.students = data.students.filter(x=>x.id!==studentId);
-  await saveBatchData(S.currentBatchId, data);
+  await saveBatchData(S.currentBatchId, data, { excludeStudentIds: [studentId] });
   await recalcStudentCount(S.currentBatchId, data);
   toast(s ? `${s.name} deleted permanently` : 'Deleted permanently');
   if(document.getElementById('reg-body')) await renderRegBody();
@@ -3162,15 +3167,14 @@ async function computeRankingRows(batchId){
     const r = ranking[s.id] || {};
     const apptScore = Number(r.appt||0);
     const recruitScore = Number(r.recruit||0);
-    const attendanceScore = Number(r.attendance||0);
     const readingScore = Number(r.reading||0);
     const socialScore = Number(r.social||0);
     const presentation = Number(r.presentation||0);
     const salesScore = Number(r.sales||0);
     const homework = Number(r.homework||0);
     const activityScore = readingScore+socialScore+salesScore+homework;
-    const total = apptScore+recruitScore+attendanceScore+readingScore+socialScore+presentation+salesScore+homework;
-    return { student:s, apptScore, recruitScore, attendanceScore, readingScore, socialScore, presentation, salesScore, homework, activityScore, total };
+    const total = apptScore+recruitScore+readingScore+socialScore+presentation+salesScore+homework;
+    return { student:s, apptScore, recruitScore, readingScore, socialScore, presentation, salesScore, homework, activityScore, total };
   }).sort((a,b)=>b.total-a.total);
 }
 
@@ -3207,10 +3211,10 @@ async function renderRankingBody(){
       <table class="ranking-compact" style="width:100%;">
         <thead><tr>
           <th>Rank</th><th>Name</th>
-          <th>Appointment</th><th>Recruitment</th><th>Attendance</th>
+          <th>Appointment</th><th>Recruitment</th>
           <th>Reading Habit</th><th>Social Media</th>
           <th>Presentation</th><th>Sales</th>
-          <th>Homework</th><th>Total</th>
+          <th>Homework</th><th>Total</th><th></th>
         </tr></thead>
         <tbody>
           ${rows.map((row)=>{
@@ -3221,13 +3225,13 @@ async function renderRankingBody(){
               <td><b>${escapeHtml(row.student.name)}</b></td>
               <td><input type="number" min="0" class="rank-input" value="${row.apptScore}" onblur="updateRankingField('${row.student.id}','appt',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.recruitScore}" onblur="updateRankingField('${row.student.id}','recruit',this.value)"></td>
-              <td><input type="number" min="0" class="rank-input" value="${row.attendanceScore}" onblur="updateRankingField('${row.student.id}','attendance',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.readingScore}" onblur="updateRankingField('${row.student.id}','reading',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.socialScore}" onblur="updateRankingField('${row.student.id}','social',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.presentation}" onblur="updateRankingField('${row.student.id}','presentation',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.salesScore}" onblur="updateRankingField('${row.student.id}','sales',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)"></td>
               <td><b style="font-size:1.1rem;">${row.total}</b></td>
+              <td><button class="btn btn-sm btn-danger" onclick="kickStudent('${row.student.id}')" title="Kick out ${escapeHtml(row.student.name)}">✕</button></td>
             </tr>`;}).join('')}
         </tbody>
       </table>`}
@@ -3414,7 +3418,6 @@ async function exportExcel(){
     Name: row.student.name,
     Appointment: row.apptScore,
     Recruitment: row.recruitScore,
-    Attendance: row.attendanceScore,
     'Reading Habit': row.readingScore,
     'Social Media': row.socialScore,
     Presentation: row.presentation,
@@ -3469,7 +3472,7 @@ async function printRankingBoard(){
       ${top3.poster ? `<div style="text-align:center;margin:20px 0;"><img src="${top3.poster}" style="max-width:320px;border-radius:8px;"></div>` : ''}
       <table border="1" cellpadding="8" style="border-collapse:collapse;width:100%;margin-top:16px;font-size:.85rem;">
         <tr style="background:#f5f3ea;">
-          <th>Rank</th><th>Name</th><th>Appointment</th><th>Recruitment</th><th>Attendance</th><th>Reading Habit</th><th>Social Media</th><th>Presentation</th><th>Sales</th><th>Homework</th><th>Total</th>
+          <th>Rank</th><th>Name</th><th>Appointment</th><th>Recruitment</th><th>Reading Habit</th><th>Social Media</th><th>Presentation</th><th>Sales</th><th>Homework</th><th>Total</th>
         </tr>
         ${rows.map((r,i)=>`
           <tr>
@@ -3477,7 +3480,6 @@ async function printRankingBoard(){
             <td>${escapeHtml(r.student.name)}</td>
             <td style="text-align:center;">${r.apptScore}</td>
             <td style="text-align:center;">${r.recruitScore}</td>
-            <td style="text-align:center;">${r.attendanceScore}</td>
             <td style="text-align:center;">${r.readingScore}</td>
             <td style="text-align:center;">${r.socialScore}</td>
             <td style="text-align:center;">${r.presentation}</td>
@@ -3502,8 +3504,8 @@ async function downloadRankingBoardImage(){
   const rows = await computeRankingRows(S.currentBatchId);
   const top3 = await loadTop3(S.currentBatchId);
 
-  const cols = ['Appointment','Recruitment','Attendance','Reading Habit','Social Media','Presentation','Sales','Homework'];
-  const keys = ['apptScore','recruitScore','attendanceScore','readingScore','socialScore','presentation','salesScore','homework'];
+  const cols = ['Appointment','Recruitment','Reading Habit','Social Media','Presentation','Sales','Homework'];
+  const keys = ['apptScore','recruitScore','readingScore','socialScore','presentation','salesScore','homework'];
 
   const temp = document.createElement('div');
   temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:1300px;background:#ffffff;padding:28px;font-family:Georgia, serif;box-sizing:border-box;';
@@ -3697,8 +3699,7 @@ async function viewStuHome(c){
       <table>
         <tr><td>Appointment</td><td><b>${my?my.apptScore:0}</b></td></tr>
         <tr><td>Recruitment</td><td><b>${my?my.recruitScore:0}</b></td></tr>
-        <tr><td>Attendance</td><td><b>${my?my.attendanceScore:0}</b></td></tr>
-        <tr><td>Activity</td><td><b>${my?my.activityScore:0}</b></td></tr>
+                <tr><td>Activity</td><td><b>${my?my.activityScore:0}</b></td></tr>
         <tr><td>Presentation</td><td><b>${my?my.presentation:0}</b></td></tr>
         <tr><td><b>Total</b></td><td><b style="font-size:1.1rem;">${my?my.total:0}</b></td></tr>
       </table>
@@ -4078,7 +4079,7 @@ async function viewStuRanking(c){
       <table style="min-width:900px;">
         <thead><tr>
           <th>Rank</th><th>Name</th>
-          <th>Appointment</th><th>Recruitment</th><th>Attendance</th>
+          <th>Appointment</th><th>Recruitment</th>
           <th>Reading Habit</th><th>Social Media</th>
           <th>Presentation</th><th>Sales</th><th>Homework</th><th>Total</th>
         </tr></thead>
@@ -4089,7 +4090,6 @@ async function viewStuRanking(c){
               <td>${escapeHtml(row.student.name)}${row.student.id===S.student.studentId?' <span style="color:var(--amber-deep);font-weight:700;">(You)</span>':''}</td>
               <td>${row.apptScore}</td>
               <td>${row.recruitScore}</td>
-              <td>${row.attendanceScore}</td>
               <td>${row.readingScore}</td>
               <td>${row.socialScore}</td>
               <td>${row.presentation}</td>
