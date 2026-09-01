@@ -3076,7 +3076,7 @@ async function renderPresoBody(){
         <button class="btn" onclick="useStandardSeniors()">👥 Use Standard Seniors</button>
         <button class="btn btn-amber" onclick="autoAssignPresentation()">🔀 Auto-Assign Remaining Members</button>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">"Use Standard Seniors" adds Yvonne, Paris, Tristan, Lester, Yun Wei, Ezra, Andrew, Kevin, Voo (skips any that already exist). "Auto-Assign" spreads every approved member who isn't already assigned to a senior evenly across all seniors, based on who's currently active in the Ranking Board.</p>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">"Use Standard Seniors" adds Yvonne, Paris, Tristan, Lester, Yun Wei, Ezra, Andrew, Kevin, Voo (skips any that already exist). "Auto-Assign" spreads every approved member who isn't already assigned to a senior evenly across all seniors, based on who's currently active in the Ranking Board — members whose Team/Leader is already one of these 9 seniors are skipped.</p>
     </div>
     ${groups.length===0 ? `<div class="card"><div class="empty-state"><div class="big">🎤</div>No seniors added yet — add one above.</div></div>` :
       groups.map(g=>`
@@ -3125,12 +3125,21 @@ async function autoAssignPresentation(){
   const groups = await loadPresentation(S.currentBatchId);
   if(groups.length===0){ toast('Add seniors first (or click "Use Standard Seniors")'); return; }
 
+  const seniorNamesLower = new Set(STANDARD_SENIORS.map(n=>n.toLowerCase()));
   const rows = await computeRankingRows(S.currentBatchId); // approved, non-kicked members currently on the Ranking Board
   const assignedIds = new Set();
   groups.forEach(g => g.members.forEach(m => { if(m.studentId) assignedIds.add(m.studentId); }));
 
-  const remaining = rows.filter(r => !assignedIds.has(r.student.id)).map(r => r.student);
-  if(remaining.length===0){ toast('No unassigned members left to distribute — everyone is already placed under a senior'); return; }
+  const isSeniorLed = r => seniorNamesLower.has((r.student.leader||'').trim().toLowerCase());
+  const remaining = rows
+    .filter(r => !assignedIds.has(r.student.id))
+    .filter(r => !isSeniorLed(r)) // their Team/Leader is already one of the seniors — skip them
+    .map(r => r.student);
+  const skippedSeniorLed = rows.filter(r => !assignedIds.has(r.student.id) && isSeniorLed(r)).length;
+  if(remaining.length===0){
+    toast(skippedSeniorLed>0 ? `Nothing to assign — the only unassigned members already have a senior as their Team/Leader (${skippedSeniorLed}), which are skipped` : 'No unassigned members left to distribute — everyone is already placed under a senior');
+    return;
+  }
 
   remaining.forEach((student, i) => {
     const group = groups[i % groups.length];
@@ -3138,7 +3147,7 @@ async function autoAssignPresentation(){
   });
 
   await savePresentation(S.currentBatchId, groups);
-  toast(`${remaining.length} member(s) distributed across ${groups.length} senior(s)`);
+  toast(`${remaining.length} member(s) distributed across ${groups.length} senior(s)${skippedSeniorLed>0 ? ` — skipped ${skippedSeniorLed} already led by a senior` : ''}`);
   await renderPresoBody();
 }
 
