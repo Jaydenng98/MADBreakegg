@@ -374,16 +374,17 @@ async function deleteJSON(key){
 }
 
 async function loadBatches(){ return (await getJSON('batches', true)) || []; }
-async function saveBatches(arr){
+async function saveBatches(arr, opts){
   S.batches = arr;
   const key = 'batches';
+  const excludeIds = new Set((opts && opts.excludeIds) || []);
   const maxAttempts = 4;
   for(let attempt = 0; attempt < maxAttempts; attempt++){
     try{
       const fresh = await getJSON(key, true);
       if(Array.isArray(fresh)){
         const localIds = new Set(arr.map(b=>b.id));
-        const missing = fresh.filter(b => !localIds.has(b.id));
+        const missing = fresh.filter(b => !localIds.has(b.id) && !excludeIds.has(b.id));
         if(missing.length) arr = arr.concat(missing);
       }
     }catch(e){ console.error('merge check failed', key, e); }
@@ -413,8 +414,9 @@ async function loadBatchData(id){
 // can still land in the gap between our check and our write), so after
 // writing we read back and confirm every student we know about actually
 // survived; if not, we re-merge against the latest copy and retry.
-async function __mergeFreshBatchData(key, data, excludeStudentIds){
+async function __mergeFreshBatchData(key, data, excludeStudentIds, excludeDates){
   const excludeSet = excludeStudentIds instanceof Set ? excludeStudentIds : new Set(excludeStudentIds||[]);
+  const excludeDateSet = excludeDates instanceof Set ? excludeDates : new Set(excludeDates||[]);
   try{
     const fresh = await getJSON(key, true);
     if(fresh && Array.isArray(fresh.students) && Array.isArray(data.students)){
@@ -426,12 +428,14 @@ async function __mergeFreshBatchData(key, data, excludeStudentIds){
     }
     if(fresh && Array.isArray(fresh.attendanceDates) && Array.isArray(data.attendanceDates)){
       const localDates = new Set(data.attendanceDates);
-      const missingDates = fresh.attendanceDates.filter(d => !localDates.has(d));
+      // Same idea — don't resurrect a session date we just deleted on purpose.
+      const missingDates = fresh.attendanceDates.filter(d => !localDates.has(d) && !excludeDateSet.has(d));
       if(missingDates.length) data.attendanceDates = data.attendanceDates.concat(missingDates).sort();
     }
     if(fresh && fresh.attendance && typeof fresh.attendance === 'object'){
       if(!data.attendance) data.attendance = {};
       for(const ds of Object.keys(fresh.attendance)){
+        if(excludeDateSet.has(ds)) continue;
         if(!data.attendance[ds]) data.attendance[ds] = {};
         for(const sid of Object.keys(fresh.attendance[ds] || {})){
           if(!(sid in data.attendance[ds])) data.attendance[ds][sid] = fresh.attendance[ds][sid];
@@ -441,6 +445,7 @@ async function __mergeFreshBatchData(key, data, excludeStudentIds){
     if(fresh && fresh.checkinCodes && typeof fresh.checkinCodes === 'object'){
       if(!data.checkinCodes) data.checkinCodes = {};
       for(const ds of Object.keys(fresh.checkinCodes)){
+        if(excludeDateSet.has(ds)) continue;
         if(!(ds in data.checkinCodes)) data.checkinCodes[ds] = fresh.checkinCodes[ds];
       }
     }
@@ -451,9 +456,10 @@ async function __mergeFreshBatchData(key, data, excludeStudentIds){
 async function saveBatchData(id, data, opts){
   const key = 'batch-'+id;
   const excludeStudentIds = new Set((opts && opts.excludeStudentIds) || []);
+  const excludeDates = new Set((opts && opts.excludeDates) || []);
   const maxAttempts = 4;
   for(let attempt = 0; attempt < maxAttempts; attempt++){
-    data = await __mergeFreshBatchData(key, data, excludeStudentIds);
+    data = await __mergeFreshBatchData(key, data, excludeStudentIds, excludeDates);
     await setJSON(key, data, true);
     if(attempt === maxAttempts - 1) return;
     await new Promise(r => setTimeout(r, 70 + attempt*50));
@@ -489,14 +495,15 @@ async function saveTop3(id, data){ await setJSON('batch-top3-'+id, data, true); 
 // Recruitment and Ranking Board entries can't get wiped out by an overlapping
 // save either (e.g. two members adding an appointment via the shared link at
 // nearly the same moment).
-async function __saveArrayWithMerge(key, arr){
+async function __saveArrayWithMerge(key, arr, excludeIds){
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds||[]);
   const maxAttempts = 4;
   for(let attempt = 0; attempt < maxAttempts; attempt++){
     try{
       const fresh = await getJSON(key, true);
       if(Array.isArray(fresh)){
         const localIds = new Set(arr.map(x=>x.id));
-        const missing = fresh.filter(x => !localIds.has(x.id));
+        const missing = fresh.filter(x => !localIds.has(x.id) && !exclude.has(x.id));
         if(missing.length) arr = arr.concat(missing);
       }
     }catch(e){ console.error('merge check failed', key, e); }
@@ -533,10 +540,10 @@ async function __saveObjectWithMerge(key, obj){
 }
 
 async function loadAppointments(id){ return (await getJSON('batch-appointments-'+id, true)) || []; }
-async function saveAppointments(id, arr){ await __saveArrayWithMerge('batch-appointments-'+id, arr); }
+async function saveAppointments(id, arr, opts){ await __saveArrayWithMerge('batch-appointments-'+id, arr, opts && opts.excludeIds); }
 
 async function loadRecruitment(id){ return (await getJSON('batch-recruitment-'+id, true)) || []; }
-async function saveRecruitment(id, arr){ await __saveArrayWithMerge('batch-recruitment-'+id, arr); }
+async function saveRecruitment(id, arr, opts){ await __saveArrayWithMerge('batch-recruitment-'+id, arr, opts && opts.excludeIds); }
 
 async function loadRanking(id){ return (await getJSON('batch-ranking-'+id, true)) || {}; }
 async function saveRanking(id, obj){ await __saveObjectWithMerge('batch-ranking-'+id, obj); }
@@ -1823,7 +1830,7 @@ async function deleteBatch(id){
   let batches = await loadBatches();
   const b = batches.find(x=>x.id===id);
   batches = batches.filter(x=>x.id!==id);
-  await saveBatches(batches);
+  await saveBatches(batches, { excludeIds: [id] });
   await deleteJSON('batch-'+id);
   if(b) await logNote(id, b.name, 'batch', `BatchDeleted`);
   toast('Deleted');
@@ -2533,7 +2540,7 @@ async function deleteAttDate(dateStr){
   data.attendanceDates = data.attendanceDates.filter(ds=>ds!==dateStr);
   delete data.attendance[dateStr];
   delete data.checkinCodes[dateStr];
-  await saveBatchData(S.currentBatchId, data);
+  await saveBatchData(S.currentBatchId, data, { excludeDates: [dateStr] });
   if(S.attDate === dateStr) S.attDate = '';
   toast('Date deleted');
   await renderAttBody();
@@ -2775,7 +2782,7 @@ async function deleteAppointment(id){
   if(!confirm('Delete this appointment record?')) return;
   let list = await loadAppointments(S.currentBatchId);
   list = list.filter(a=>a.id!==id);
-  await saveAppointments(S.currentBatchId, list);
+  await saveAppointments(S.currentBatchId, list, { excludeIds: [id] });
   toast('Deleted');
   await renderApptBody();
 }
@@ -2901,7 +2908,7 @@ async function deleteRecruit(id){
   if(!confirm('Delete this recruitment record?')) return;
   let list = await loadRecruitment(S.currentBatchId);
   list = list.filter(r=>r.id!==id);
-  await saveRecruitment(S.currentBatchId, list);
+  await saveRecruitment(S.currentBatchId, list, { excludeIds: [id] });
   toast('Deleted');
   await renderRecruitBody();
 }
@@ -3183,6 +3190,16 @@ async function renderRankingBody(){
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🏆</div>Please select a batch first.</div>`; return; }
   const allRows = await computeRankingRows(S.currentBatchId);
   const top3 = await loadTop3(S.currentBatchId);
+  const batchData = await loadBatchData(S.currentBatchId);
+  const totalDays = batchData.attendanceDates.length;
+  const attendanceDaysById = {};
+  allRows.forEach(row=>{
+    let present = 0;
+    for(const ds of batchData.attendanceDates){
+      if(batchData.attendance[ds] && batchData.attendance[ds][row.student.id]) present++;
+    }
+    attendanceDaysById[row.student.id] = present;
+  });
   const q = (S.rankingSearch || '').trim().toLowerCase();
   const rows = q ? allRows.filter(r => r.student.name.toLowerCase().includes(q)) : allRows;
 
@@ -3207,6 +3224,7 @@ async function renderRankingBody(){
       <input id="ranking-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.rankingSearch||'')}" oninput="onRankingSearch(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
     </div>
     <div class="card" style="overflow-x:auto;">
+      <p style="color:var(--muted);font-size:.78rem;margin-top:0;margin-bottom:10px;">"Attended" is for your own reference only — it's not part of the Total score, and won't appear in Save as Image, Print or Excel exports.</p>
       ${rows.length===0 ? `<div class="empty-state">${q ? 'No matching members' : 'No members registered in this batch yet'}</div>` : `
       <table class="ranking-compact" style="width:100%;">
         <thead><tr>
@@ -3214,11 +3232,12 @@ async function renderRankingBody(){
           <th>Appointment</th><th>Recruitment</th>
           <th>Reading Habit</th><th>Social Media</th>
           <th>Presentation</th><th>Sales</th>
-          <th>Homework</th><th>Total</th><th></th>
+          <th>Homework</th><th>Total</th><th>Attended</th><th></th>
         </tr></thead>
         <tbody>
           ${rows.map((row)=>{
             const i = allRows.indexOf(row);
+            const attDays = attendanceDaysById[row.student.id] || 0;
             return `
             <tr>
               <td><b>${i+1}</b></td>
@@ -3231,6 +3250,7 @@ async function renderRankingBody(){
               <td><input type="number" min="0" class="rank-input" value="${row.salesScore}" onblur="updateRankingField('${row.student.id}','sales',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.homework}" onblur="updateRankingField('${row.student.id}','homework',this.value)"></td>
               <td><b style="font-size:1.1rem;">${row.total}</b></td>
+              <td style="text-align:center;${totalDays>0 && attDays===0 ? 'color:var(--danger);font-weight:800;' : ''}">${attDays}${totalDays>0?`/${totalDays}`:''}</td>
               <td><button class="btn btn-sm btn-danger" onclick="kickStudent('${row.student.id}')" title="Kick out ${escapeHtml(row.student.name)}">✕</button></td>
             </tr>`;}).join('')}
         </tbody>
@@ -3905,7 +3925,7 @@ async function stuDeleteAppointment(id){
   if(!confirm('Delete this appointment record?')) return;
   let list = await loadAppointments(S.student.batchId);
   list = list.filter(a=> !(a.id===id && a.madeBy===S.student.studentId));
-  await saveAppointments(S.student.batchId, list);
+  await saveAppointments(S.student.batchId, list, { excludeIds: [id] });
   toast('Deleted');
   await viewStuAppointments(document.getElementById('content'));
 }
@@ -4023,7 +4043,7 @@ async function stuDeleteRecruit(id){
   if(!confirm('Delete this recruitment record?')) return;
   let list = await loadRecruitment(S.student.batchId);
   list = list.filter(r=> !(r.id===id && r.madeBy===S.student.studentId));
-  await saveRecruitment(S.student.batchId, list);
+  await saveRecruitment(S.student.batchId, list, { excludeIds: [id] });
   toast('Deleted');
   await viewStuRecruitment(document.getElementById('content'));
 }
