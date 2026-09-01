@@ -1711,6 +1711,7 @@ async function renderBatchMembersTable(){
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   if(!batch || !body) return;
   const data = await loadBatchData(S.currentBatchId);
+  const totalDays = data.attendanceDates.length;
   const q = (document.getElementById('bm-search')?.value || '').trim().toLowerCase();
   let students = data.students.slice().sort((a,b)=>a.name.localeCompare(b.name));
   if(q){
@@ -1721,9 +1722,14 @@ async function renderBatchMembersTable(){
       <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
       ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
       <table>
-        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th><th>Attended</th><th></th></tr></thead>
         <tbody>
-          ${students.map(s=>`
+          ${students.map(s=>{
+            let attDays = 0;
+            for(const ds of data.attendanceDates){
+              if(data.attendance[ds] && data.attendance[ds][s.id]) attDays++;
+            }
+            return `
             <tr>
               <td>${escapeHtml(s.name)}</td>
               <td>${escapeHtml(s.agentId||'-')}</td>
@@ -1732,9 +1738,10 @@ async function renderBatchMembersTable(){
               <td>${escapeHtml(s.notes||'-')}</td>
               <td><span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span></td>
               <td>${fmtDate(s.registeredAt)}</td>
+              <td style="text-align:center;${totalDays>0 && attDays===0 ? 'color:var(--danger);font-weight:800;' : ''}">${attDays}${totalDays>0?`/${totalDays}`:''}</td>
               <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
-            </tr>
-          `).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>`}
     </div>
@@ -3052,6 +3059,8 @@ async function shareGenericImage(filename){
   await shareRankingImage();
 }
 
+const STANDARD_SENIORS = ['Yvonne','Paris','Tristan','Lester','Yun Wei','Ezra','Andrew','Kevin','Voo'];
+
 async function renderPresoBody(){
   const body = document.getElementById('preso-body');
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🎤</div>Please select a batch first.</div>`; return; }
@@ -3062,7 +3071,12 @@ async function renderPresoBody(){
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
         <div class="field"><label>Senior Name</label><input id="preso-senior-name" placeholder="e.g. Yvonne"></div>
       </div>
-      <button class="btn btn-amber" onclick="addPresentationGroup()">+ Add Senior</button>
+      <div class="btn-row">
+        <button class="btn btn-amber" onclick="addPresentationGroup()">+ Add Senior</button>
+        <button class="btn" onclick="useStandardSeniors()">👥 Use Standard Seniors</button>
+        <button class="btn btn-amber" onclick="autoAssignPresentation()">🔀 Auto-Assign Remaining Members</button>
+      </div>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">"Use Standard Seniors" adds Yvonne, Paris, Tristan, Lester, Yun Wei, Ezra, Andrew, Kevin, Voo (skips any that already exist). "Auto-Assign" spreads every approved member who isn't already assigned to a senior evenly across all seniors, based on who's currently active in the Ranking Board.</p>
     </div>
     ${groups.length===0 ? `<div class="card"><div class="empty-state"><div class="big">🎤</div>No seniors added yet — add one above.</div></div>` :
       groups.map(g=>`
@@ -3090,6 +3104,42 @@ async function renderPresoBody(){
         </div>
       `).join('')}
   `;
+}
+
+async function useStandardSeniors(){
+  const groups = await loadPresentation(S.currentBatchId);
+  const existingNames = new Set(groups.map(g=>g.senior.trim().toLowerCase()));
+  let added = 0;
+  for(const name of STANDARD_SENIORS){
+    if(!existingNames.has(name.toLowerCase())){
+      groups.push({ id: uid('pg'), senior: name, members: [] });
+      added++;
+    }
+  }
+  await savePresentation(S.currentBatchId, groups);
+  toast(added>0 ? `${added} senior(s) added` : 'All standard seniors already added');
+  await renderPresoBody();
+}
+
+async function autoAssignPresentation(){
+  const groups = await loadPresentation(S.currentBatchId);
+  if(groups.length===0){ toast('Add seniors first (or click "Use Standard Seniors")'); return; }
+
+  const rows = await computeRankingRows(S.currentBatchId); // approved, non-kicked members currently on the Ranking Board
+  const assignedIds = new Set();
+  groups.forEach(g => g.members.forEach(m => { if(m.studentId) assignedIds.add(m.studentId); }));
+
+  const remaining = rows.filter(r => !assignedIds.has(r.student.id)).map(r => r.student);
+  if(remaining.length===0){ toast('No unassigned members left to distribute — everyone is already placed under a senior'); return; }
+
+  remaining.forEach((student, i) => {
+    const group = groups[i % groups.length];
+    group.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
+  });
+
+  await savePresentation(S.currentBatchId, groups);
+  toast(`${remaining.length} member(s) distributed across ${groups.length} senior(s)`);
+  await renderPresoBody();
 }
 
 async function addPresentationGroup(){
