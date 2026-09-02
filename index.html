@@ -2989,37 +2989,46 @@ async function downloadPresentationImage(){
   toast('Building image...');
 
   const temp = document.createElement('div');
-  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:820px;background:#F5F3EA;padding:32px;font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,sans-serif;';
+  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:860px;background:#EDE7D6;font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,sans-serif;';
   temp.innerHTML = `
-    <div style="text-align:center;margin-bottom:24px;">
-      <p style="margin:0;font-size:.8rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#C67F1F;">MAD Breakegg Program</p>
-      <h1 style="margin:4px 0 2px;font-size:1.7rem;color:#1F3D2F;font-weight:900;">${escapeHtml(batch.name)} · Presentation Assignments</h1>
-      <p style="color:#8a8577;margin:0;font-size:.9rem;">${fmtDateRange(batch.startDate, batch.endDate)}</p>
+    <div style="background:linear-gradient(135deg,#1F3D2F 0%,#16281F 100%);padding:36px 40px 30px;text-align:center;">
+      <p style="margin:0;font-size:.82rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#E8A33D;">🥚 MAD Breakegg Program</p>
+      <h1 style="margin:8px 0 4px;font-size:2rem;color:#F5F3EA;font-weight:900;letter-spacing:.3px;">${escapeHtml(batch.name)}</h1>
+      <div style="display:inline-block;margin-top:4px;padding:5px 16px;background:rgba(232,163,61,.18);border:1px solid rgba(232,163,61,.5);border-radius:20px;">
+        <span style="color:#E8A33D;font-weight:700;font-size:.85rem;letter-spacing:.5px;">🎤 PRESENTATION ASSIGNMENTS</span>
+      </div>
+      <p style="color:#B9C4BB;margin:10px 0 0;font-size:.88rem;">${fmtDateRange(batch.startDate, batch.endDate)}</p>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-      ${groups.map(g=>`
-        <div style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(31,61,47,.12);break-inside:avoid;">
-          <div style="background:#1F3D2F;padding:12px 18px;display:flex;align-items:center;gap:8px;">
-            <span style="font-size:1.1rem;">🎤</span>
-            <span style="font-weight:800;font-size:1.05rem;color:#F5F3EA;">${escapeHtml(g.senior)}</span>
+    <div style="padding:28px 32px;display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      ${groups.map((g,gi)=>{
+        const colors = ['#E8A33D','#4A7C59','#C67F1F','#2E5C45'];
+        const accent = colors[gi % colors.length];
+        return `
+        <div style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 6px 20px rgba(31,61,47,.16);break-inside:avoid;border-top:5px solid ${accent};">
+          <div style="background:linear-gradient(120deg,#1F3D2F,#2A4F3C);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:1.3rem;">🎤</span>
+              <span style="font-weight:900;font-size:1.15rem;color:#ffffff;letter-spacing:.2px;">${escapeHtml(g.senior)}</span>
+            </div>
+            <span style="background:${accent};color:#1F3D2F;font-weight:800;font-size:.72rem;padding:4px 10px;border-radius:12px;white-space:nowrap;">${g.members.length} ${g.members.length===1?'PERSON':'PEOPLE'}</span>
           </div>
-          ${g.members.length===0 ? `<div style="padding:20px 18px;color:#aaa;font-size:.85rem;text-align:center;">No one assigned yet</div>` : `
-          <div style="padding:6px 0;">
+          ${g.members.length===0 ? `<div style="padding:24px 18px;color:#b0aa98;font-size:.88rem;text-align:center;font-style:italic;">No one assigned yet</div>` : `
+          <div style="padding:8px 0;">
             ${g.members.map((m,i)=>`
-              <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;${i%2===1?'background:#FBF9F2;':''}">
-                <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#E8A33D,#1F3D2F);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0;">${escapeHtml((m.name||'?').charAt(0).toUpperCase())}</div>
+              <div style="display:flex;align-items:center;gap:13px;padding:11px 20px;${i%2===1?'background:#F7F3E9;':''}${i!==g.members.length-1?'border-bottom:1px solid #EFEAE0;':''}">
+                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#E8A33D 0%,#1F3D2F 100%);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.9rem;flex-shrink:0;box-shadow:0 2px 6px rgba(31,61,47,.3);">${escapeHtml((m.name||'?').charAt(0).toUpperCase())}</div>
                 <div style="flex:1;min-width:0;">
-                  <div style="font-weight:700;font-size:.92rem;color:#1E2420;">${escapeHtml(m.name)}</div>
-                  ${m.location ? `<div style="font-size:.78rem;color:#8a8577;">📍 ${escapeHtml(m.location)}</div>` : ''}
+                  <div style="font-weight:800;font-size:.98rem;color:#1E2420;">${escapeHtml(m.name)}</div>
+                  ${m.location ? `<div style="font-size:.8rem;color:#8a8577;margin-top:1px;">📍 ${escapeHtml(m.location)}</div>` : ''}
                 </div>
-                <div style="font-size:.8rem;color:#555;white-space:nowrap;">${escapeHtml(m.phone||'-')}</div>
+                <div style="font-size:.82rem;color:#4A7C59;font-weight:700;white-space:nowrap;background:#EEF4EF;padding:4px 10px;border-radius:8px;">${escapeHtml(m.phone||'-')}</div>
               </div>
             `).join('')}
           </div>`}
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
-    <p style="text-align:center;color:#b5b0a0;font-size:.72rem;margin-top:22px;">Generated ${new Date().toLocaleString()}</p>
+    <p style="text-align:center;color:#a39d8c;font-size:.72rem;padding:0 0 20px;">Generated ${new Date().toLocaleString()}</p>
   `;
   document.body.appendChild(temp);
 
@@ -3076,7 +3085,7 @@ async function renderPresoBody(){
         <button class="btn" onclick="useStandardSeniors()">👥 Use Standard Seniors</button>
         <button class="btn btn-amber" onclick="autoAssignPresentation()">🔀 Auto-Assign Remaining Members</button>
       </div>
-      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">"Use Standard Seniors" adds Yvonne, Paris, Tristan, Lester, Yun Wei, Ezra, Andrew, Kevin, Voo (skips any that already exist). "Auto-Assign" spreads every approved member who isn't already assigned to a senior evenly across all seniors, based on who's currently active in the Ranking Board — members whose Team/Leader is already one of these 9 seniors are skipped.</p>
+      <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">"Use Standard Seniors" adds Yvonne, Paris, Tristan, Lester, Yun Wei, Ezra, Andrew, Kevin, Voo (skips any that already exist). "Auto-Assign" spreads every unassigned, currently-active member across seniors by their State — Johor→Andrew/Tristan, Sarawak & Sabah→Lester/Kevin/Voo, Pahang/Terengganu/Kelantan→Yvonne, Kuala Lumpur→Yun Wei/Ezra, Penang→Paris. Any other state is assigned to whichever senior has room, but never to a senior who is literally that member's own Team/Leader.</p>
     </div>
     ${groups.length===0 ? `<div class="card"><div class="empty-state"><div class="big">🎤</div>No seniors added yet — add one above.</div></div>` :
       groups.map(g=>`
@@ -3121,33 +3130,56 @@ async function useStandardSeniors(){
   await renderPresoBody();
 }
 
+const STATE_SENIOR_MAP = {
+  'johor': ['Andrew','Tristan'],
+  'sarawak': ['Lester','Kevin','Voo'],
+  'sabah': ['Lester','Kevin','Voo'],
+  'pahang': ['Yvonne'],
+  'terengganu': ['Yvonne'],
+  'kelantan': ['Yvonne'],
+  'kuala lumpur': ['Yun Wei','Ezra'],
+  'penang': ['Paris'],
+};
+
 async function autoAssignPresentation(){
   const groups = await loadPresentation(S.currentBatchId);
   if(groups.length===0){ toast('Add seniors first (or click "Use Standard Seniors")'); return; }
 
-  const seniorNamesLower = new Set(STANDARD_SENIORS.map(n=>n.toLowerCase()));
   const rows = await computeRankingRows(S.currentBatchId); // approved, non-kicked members currently on the Ranking Board
   const assignedIds = new Set();
   groups.forEach(g => g.members.forEach(m => { if(m.studentId) assignedIds.add(m.studentId); }));
 
-  const isSeniorLed = r => seniorNamesLower.has((r.student.leader||'').trim().toLowerCase());
-  const remaining = rows
-    .filter(r => !assignedIds.has(r.student.id))
-    .filter(r => !isSeniorLed(r)) // their Team/Leader is already one of the seniors — skip them
-    .map(r => r.student);
-  const skippedSeniorLed = rows.filter(r => !assignedIds.has(r.student.id) && isSeniorLed(r)).length;
-  if(remaining.length===0){
-    toast(skippedSeniorLed>0 ? `Nothing to assign — the only unassigned members already have a senior as their Team/Leader (${skippedSeniorLed}), which are skipped` : 'No unassigned members left to distribute — everyone is already placed under a senior');
-    return;
-  }
+  const pool = rows.filter(r => !assignedIds.has(r.student.id)).map(r => r.student);
+  if(pool.length===0){ toast('No unassigned members left to distribute — everyone is already placed under a senior'); return; }
 
-  remaining.forEach((student, i) => {
-    const group = groups[i % groups.length];
-    group.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
+  const groupByName = {};
+  groups.forEach(g => { groupByName[g.senior.trim().toLowerCase()] = g; });
+  const counters = {};
+  let byState = 0, byFallback = 0;
+
+  pool.forEach(student => {
+    const stateKey = (student.agentId||'').trim().toLowerCase();
+    const memberLeaderLower = (student.leader||'').trim().toLowerCase();
+    const mappedNames = STATE_SENIOR_MAP[stateKey];
+    let eligible = mappedNames ? mappedNames.map(n=>groupByName[n.toLowerCase()]).filter(Boolean) : null;
+    let usedFallback = false;
+    if(!eligible || eligible.length===0){ eligible = groups.slice(); usedFallback = true; }
+
+    // never pair a member with a senior who is literally their own Team/Leader
+    const filtered = eligible.filter(g => g.senior.trim().toLowerCase() !== memberLeaderLower);
+    const finalPool = filtered.length ? filtered : eligible;
+
+    const counterKey = usedFallback ? '__fallback__' : stateKey;
+    const idx = counters[counterKey] || 0;
+    const targetGroup = finalPool[idx % finalPool.length];
+    counters[counterKey] = idx + 1;
+    if(usedFallback) byFallback++; else byState++;
+
+    targetGroup.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
   });
 
   await savePresentation(S.currentBatchId, groups);
-  toast(`${remaining.length} member(s) distributed across ${groups.length} senior(s)${skippedSeniorLed>0 ? ` — skipped ${skippedSeniorLed} already led by a senior` : ''}`);
+  toast(`${pool.length} member(s) assigned (${byState} by state rule, ${byFallback} by fallback)`);
   await renderPresoBody();
 }
 
