@@ -3141,6 +3141,38 @@ const STATE_SENIOR_MAP = {
   'penang': ['Paris'],
 };
 
+// Picks the best senior group for a member per the State rules above, never
+// pairing them with a senior who is literally their own Team/Leader, and
+// optionally skipping one group entirely (used when re-assigning someone who
+// was just removed from a group, so they don't just land right back there).
+// `counters` tracks a rotation pointer per state key so repeated calls spread
+// people evenly across the eligible seniors instead of always picking the first.
+function pickSeniorGroupForStudent(student, groups, counters, excludeGroupId){
+  const stateKey = (student.agentId||'').trim().toLowerCase();
+  const memberLeaderLower = (student.leader||'').trim().toLowerCase();
+  const groupByName = {};
+  groups.forEach(g => { groupByName[g.senior.trim().toLowerCase()] = g; });
+
+  const mappedNames = STATE_SENIOR_MAP[stateKey];
+  let eligible = mappedNames ? mappedNames.map(n=>groupByName[n.toLowerCase()]).filter(Boolean) : null;
+  let usedFallback = false;
+  if(!eligible || eligible.length===0){ eligible = groups.slice(); usedFallback = true; }
+
+  eligible = eligible.filter(g => g.id !== excludeGroupId);
+
+  // never pair a member with a senior who is literally their own Team/Leader
+  const filtered = eligible.filter(g => g.senior.trim().toLowerCase() !== memberLeaderLower);
+  let finalPool = filtered.length ? filtered : eligible;
+  if(finalPool.length===0) finalPool = groups.filter(g => g.id !== excludeGroupId); // last resort
+  if(finalPool.length===0) finalPool = groups; // truly nothing else — only one group exists
+
+  const counterKey = usedFallback ? '__fallback__' : stateKey;
+  const idx = counters[counterKey] || 0;
+  const targetGroup = finalPool[idx % finalPool.length];
+  counters[counterKey] = idx + 1;
+  return { group: targetGroup, usedFallback };
+}
+
 async function autoAssignPresentation(){
   const groups = await loadPresentation(S.currentBatchId);
   if(groups.length===0){ toast('Add seniors first (or click "Use Standard Seniors")'); return; }
@@ -3152,30 +3184,13 @@ async function autoAssignPresentation(){
   const pool = rows.filter(r => !assignedIds.has(r.student.id)).map(r => r.student);
   if(pool.length===0){ toast('No unassigned members left to distribute — everyone is already placed under a senior'); return; }
 
-  const groupByName = {};
-  groups.forEach(g => { groupByName[g.senior.trim().toLowerCase()] = g; });
   const counters = {};
   let byState = 0, byFallback = 0;
 
   pool.forEach(student => {
-    const stateKey = (student.agentId||'').trim().toLowerCase();
-    const memberLeaderLower = (student.leader||'').trim().toLowerCase();
-    const mappedNames = STATE_SENIOR_MAP[stateKey];
-    let eligible = mappedNames ? mappedNames.map(n=>groupByName[n.toLowerCase()]).filter(Boolean) : null;
-    let usedFallback = false;
-    if(!eligible || eligible.length===0){ eligible = groups.slice(); usedFallback = true; }
-
-    // never pair a member with a senior who is literally their own Team/Leader
-    const filtered = eligible.filter(g => g.senior.trim().toLowerCase() !== memberLeaderLower);
-    const finalPool = filtered.length ? filtered : eligible;
-
-    const counterKey = usedFallback ? '__fallback__' : stateKey;
-    const idx = counters[counterKey] || 0;
-    const targetGroup = finalPool[idx % finalPool.length];
-    counters[counterKey] = idx + 1;
+    const { group, usedFallback } = pickSeniorGroupForStudent(student, groups, counters);
     if(usedFallback) byFallback++; else byState++;
-
-    targetGroup.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
+    group.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
   });
 
   await savePresentation(S.currentBatchId, groups);
@@ -3221,7 +3236,27 @@ async function deletePresentationMember(groupId, memberId){
   const groups = await loadPresentation(S.currentBatchId);
   const g = groups.find(x=>x.id===groupId);
   if(!g) return;
+  const member = g.members.find(m=>m.id===memberId);
   g.members = g.members.filter(m=>m.id!==memberId);
+
+  // If this was a real batch member (not a manually-typed name) and they're
+  // still approved, automatically re-assign them to another eligible senior
+  // per the State rules — same logic as Auto-Assign, just for this one person.
+  if(member && member.studentId && groups.length>1){
+    const data = await loadBatchData(S.currentBatchId);
+    const student = data.students.find(s=>s.id===member.studentId);
+    if(student && (student.status||'approved')==='approved'){
+      const { group: targetGroup } = pickSeniorGroupForStudent(student, groups, {}, groupId);
+      if(targetGroup && targetGroup.id !== groupId){
+        targetGroup.members.push({ id: uid('pm'), studentId: student.id, name: student.name, location: student.agentId||'', phone: student.phone||'' });
+        await savePresentation(S.currentBatchId, groups);
+        toast(`Removed from ${g.senior} — automatically reassigned to ${targetGroup.senior}`);
+        await renderPresoBody();
+        return;
+      }
+    }
+  }
+
   await savePresentation(S.currentBatchId, groups);
   toast('Removed');
   await renderPresoBody();
