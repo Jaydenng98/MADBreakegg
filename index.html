@@ -148,7 +148,8 @@
   .ranking-compact th{padding:6px 3px;font-size:.62rem;white-space:normal;line-height:1.15;text-align:center;}
   .ranking-compact td{padding:4px 3px;text-align:center;}
   .ranking-compact td:nth-child(2){text-align:left;}
-  .rank-input{width:34px;padding:4px 1px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:.85rem;text-align:center;}
+  .rank-input{width:34px;padding:4px 1px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:.85rem;text-align:center;user-select:none;}
+  .rank-input:focus{user-select:text;}
 
   .btn{padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--paper);font-weight:600;font-size:.85rem;color:var(--ink);}
   .btn:hover{border-color:var(--amber);}
@@ -3010,7 +3011,7 @@ async function downloadPresentationImage(){
               <span style="font-size:1.3rem;">🎤</span>
               <span style="font-weight:900;font-size:1.15rem;color:#ffffff;letter-spacing:.2px;">${escapeHtml(g.senior)}</span>
             </div>
-            <span style="background:${accent};color:#1F3D2F;font-weight:800;font-size:.72rem;padding:4px 10px;border-radius:12px;white-space:nowrap;">${g.members.length} ${g.members.length===1?'PERSON':'PEOPLE'}</span>
+            <span style="background:#E8A33D;color:#1F3D2F;font-weight:800;font-size:.72rem;padding:4px 10px;border-radius:12px;white-space:nowrap;">${g.members.length} ${g.members.length===1?'PERSON':'PEOPLE'}</span>
           </div>
           ${g.members.length===0 ? `<div style="padding:24px 18px;color:#b0aa98;font-size:.88rem;text-align:center;font-style:italic;">No one assigned yet</div>` : `
           <div style="padding:8px 0;">
