@@ -148,6 +148,12 @@
   .ranking-compact th{padding:6px 3px;font-size:.62rem;white-space:normal;line-height:1.15;text-align:center;}
   .ranking-compact td{padding:4px 3px;text-align:center;}
   .ranking-compact td:nth-child(2){text-align:left;}
+  .ranking-compact td:nth-child(1),
+  .ranking-compact td:nth-child(11),
+  .ranking-compact td:nth-child(12){user-select:none;}
+  .ranking-compact th:nth-child(1),
+  .ranking-compact th:nth-child(11),
+  .ranking-compact th:nth-child(12){user-select:none;}
   .rank-input{width:34px;padding:4px 1px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:.85rem;text-align:center;user-select:none;}
   .rank-input:focus{user-select:text;}
 
@@ -374,6 +380,91 @@ async function deleteJSON(key){
   });
 }
 
+// Bulk-fetch every key/value pair whose key starts with `prefix`. Used for the
+// independent per-student attendance marks below, so we can reassemble "who's
+// present on this date" from many small independent rows in one query.
+async function getJSONByPrefix(prefix){
+  try{
+    const { data, error } = await sb.from('app_storage').select('key,value').like('key', prefix + '%');
+    if(error) throw error;
+    return data || [];
+  }catch(e){ console.error('storage prefix get failed', prefix, e); return []; }
+}
+
+// ------------------------------------------------------------------
+// Independent per-student attendance marks.
+//
+// Each check-in writes to its OWN key (one row per batch+date+student),
+// completely independent of every other student's row. This means dozens of
+// people can all tap "present" within the same second — like everyone
+// checking in right as a session starts — with zero risk of one person's
+// check-in getting silently overwritten by another's, since no two people
+// ever write to the same key. The old approach stored everyone's attendance
+// for a date inside one shared JSON blob, which required a read-modify-write
+// merge that could (and did) lose entries under this kind of heavy,
+// near-simultaneous concurrent write load.
+// ------------------------------------------------------------------
+function attendanceMarkKey(batchId, date, studentId){ return `battnd-${batchId}-${date}-${studentId}`; }
+function attendanceMigratedKey(batchId, date){ return `battndmig-${batchId}-${date}`; }
+
+async function markAttendanceIndependent(batchId, date, studentId, present){
+  const key = attendanceMarkKey(batchId, date, studentId);
+  if(present) await setJSON(key, true, true);
+  else await deleteJSON(key);
+  // Once a date has been touched via the independent system even once, it
+  // stays "owned" by that system forever — including when the LAST mark for
+  // that date gets removed. Without this marker, loadBatchData couldn't tell
+  // "nobody has ever checked in for this date" apart from "everyone who
+  // checked in later unchecked themselves", and would wrongly fall back to
+  // whatever stale copy some unrelated save happened to re-embed in the main
+  // blob in the meantime — which is exactly how a cleared check-in could
+  // reappear as still "present".
+  await setJSON(attendanceMigratedKey(batchId, date), true, true);
+}
+
+async function loadIndependentAttendanceForBatch(batchId){
+  const prefix = `battnd-${batchId}-`;
+  const rows = await getJSONByPrefix(prefix);
+  const result = {}; // { date: { studentId: true } }
+  rows.forEach(row => {
+    const rest = row.key.slice(prefix.length); // "YYYY-MM-DD-studentId"
+    const date = rest.slice(0, 10);
+    const studentId = rest.slice(11);
+    if(!studentId) return;
+    if(!result[date]) result[date] = {};
+    result[date][studentId] = row.value;
+  });
+  return result;
+}
+
+async function loadMigratedAttendanceDates(batchId){
+  const prefix = `battndmig-${batchId}-`;
+  const rows = await getJSONByPrefix(prefix);
+  return new Set(rows.map(row => row.key.slice(prefix.length)));
+}
+
+async function deleteIndependentAttendanceForDate(batchId, date){
+  const prefix = `battnd-${batchId}-${date}-`;
+  const rows = await getJSONByPrefix(prefix);
+  for(const row of rows){ await deleteJSON(row.key); }
+  await deleteJSON(attendanceMigratedKey(batchId, date));
+}
+
+async function renameIndependentAttendanceDate(batchId, oldDate, newDate){
+  const prefix = `battnd-${batchId}-${oldDate}-`;
+  const rows = await getJSONByPrefix(prefix);
+  for(const row of rows){
+    const studentId = row.key.slice(prefix.length);
+    await setJSON(attendanceMarkKey(batchId, newDate, studentId), row.value, true);
+    await deleteJSON(row.key);
+  }
+  const wasMigrated = await getJSON(attendanceMigratedKey(batchId, oldDate), true);
+  if(wasMigrated){
+    await setJSON(attendanceMigratedKey(batchId, newDate), true, true);
+    await deleteJSON(attendanceMigratedKey(batchId, oldDate));
+  }
+}
+
 async function loadBatches(){ return (await getJSON('batches', true)) || []; }
 async function saveBatches(arr, opts){
   S.batches = arr;
@@ -403,7 +494,37 @@ async function saveBatches(arr, opts){
 async function loadBatchData(id){
   const d = (await getJSON('batch-'+id, true)) || { students:[], attendance:{}, attendanceDates:[], checkinCodes:{}, marks:{} };
   if(!d.attendanceDates) d.attendanceDates = [];
+  if(!d.attendance) d.attendance = {};
+  // Merge in independently-recorded attendance marks (see markAttendanceIndependent
+  // above) — these are the authoritative source for who's actually present,
+  // since they're written one-per-student and can never collide with anyone
+  // else's check-in the way the old shared-blob approach could. Once a date
+  // has been touched via the independent system (tracked by the "migrated"
+  // marker), it becomes the SOLE source of truth for that date — completely
+  // replacing whatever's embedded in the main blob — so unchecking someone's
+  // only mark for a date can't be silently undone by some unrelated save
+  // re-embedding a stale snapshot of the blob's old attendance field.
+  const indep = await loadIndependentAttendanceForBatch(id);
+  const migratedDates = await loadMigratedAttendanceDates(id);
+  for(const date of migratedDates){
+    d.attendance[date] = indep[date] || {};
+  }
   return d;
+}
+
+// saveBatchData never persists attendance into the main blob for a date
+// that's already been migrated to the independent system — otherwise every
+// unrelated save (approving a member, editing an appointment, anything that
+// does load-then-save on the batch) would re-embed whatever merged snapshot
+// loadBatchData happened to return, undoing future unmarks. Attendance for
+// migrated dates lives ONLY in the independent per-student keys from here on.
+async function stripMigratedAttendanceBeforeSave(id, data){
+  try{
+    const migratedDates = await loadMigratedAttendanceDates(id);
+    for(const date of migratedDates){
+      if(data.attendance && date in data.attendance) delete data.attendance[date];
+    }
+  }catch(e){ console.error('stripMigratedAttendanceBeforeSave failed', e); }
 }
 
 // saveBatchData is called after a read-modify-write cycle (load the batch,
@@ -461,6 +582,7 @@ async function saveBatchData(id, data, opts){
   const maxAttempts = 4;
   for(let attempt = 0; attempt < maxAttempts; attempt++){
     data = await __mergeFreshBatchData(key, data, excludeStudentIds, excludeDates);
+    await stripMigratedAttendanceBeforeSave(id, data); // run AFTER merging fresh data in, so a stale copy pulled in by the merge doesn't survive into the write
     await setJSON(key, data, true);
     if(attempt === maxAttempts - 1) return;
     await new Promise(r => setTimeout(r, 70 + attempt*50));
@@ -944,14 +1066,12 @@ function showAlreadyMarkedModal(name, date){
 async function submitPublicAttendance(batchId, studentId){
   const date = S.paDate;
   const data = await loadBatchData(batchId);
-  if(!data.attendance[date]) data.attendance[date] = {};
-  if(data.attendance[date][studentId]){
+  if(data.attendance[date] && data.attendance[date][studentId]){
     const student = data.students.find(s=>s.id===studentId);
     showAlreadyMarkedModal(student?student.name:'', date);
     return;
   }
-  data.attendance[date][studentId] = true;
-  await saveBatchData(batchId, data);
+  await markAttendanceIndependent(batchId, date, studentId, true);
   const batches = await loadBatches();
   const batch = batches.find(b=>b.id===batchId);
   const student = data.students.find(s=>s.id===studentId);
@@ -1840,6 +1960,8 @@ async function deleteBatch(id){
   batches = batches.filter(x=>x.id!==id);
   await saveBatches(batches, { excludeIds: [id] });
   await deleteJSON('batch-'+id);
+  const orphanedAttendanceRows = await getJSONByPrefix(`battnd-${id}-`);
+  for(const row of orphanedAttendanceRows){ await deleteJSON(row.key); }
   if(b) await logNote(id, b.name, 'batch', `BatchDeleted`);
   toast('Deleted');
   await viewBatches(document.getElementById('content'));
@@ -2549,6 +2671,7 @@ async function deleteAttDate(dateStr){
   delete data.attendance[dateStr];
   delete data.checkinCodes[dateStr];
   await saveBatchData(S.currentBatchId, data, { excludeDates: [dateStr] });
+  await deleteIndependentAttendanceForDate(S.currentBatchId, dateStr);
   if(S.attDate === dateStr) S.attDate = '';
   toast('Date deleted');
   await renderAttBody();
@@ -2581,6 +2704,7 @@ async function saveEditAttDate(oldDate){
   if(data.attendance[oldDate]){ data.attendance[newDate] = data.attendance[oldDate]; delete data.attendance[oldDate]; }
   if(data.checkinCodes[oldDate]){ data.checkinCodes[newDate] = data.checkinCodes[oldDate]; delete data.checkinCodes[oldDate]; }
   await saveBatchData(S.currentBatchId, data);
+  await renameIndependentAttendanceDate(S.currentBatchId, oldDate, newDate);
   S.attDate = newDate;
   closeModal();
   toast('Date updated');
@@ -2687,9 +2811,8 @@ async function regenCode(d){
 
 async function toggleAttendance(studentId, d){
   const data = await loadBatchData(S.currentBatchId);
-  if(!data.attendance[d]) data.attendance[d] = {};
-  data.attendance[d][studentId] = !data.attendance[d][studentId];
-  await saveBatchData(S.currentBatchId, data);
+  const currentlyPresent = !!(data.attendance[d] && data.attendance[d][studentId]);
+  await markAttendanceIndependent(S.currentBatchId, d, studentId, !currentlyPresent);
   await renderAttBody();
 }
 
