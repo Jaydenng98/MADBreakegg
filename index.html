@@ -2665,6 +2665,37 @@ async function addAttDate(){
   await renderAttBody();
 }
 
+async function addAttDateRange(){
+  const fromStr = document.getElementById('att-range-from').value;
+  const toStr = document.getElementById('att-range-to').value;
+  if(!fromStr || !toStr){ toast('Pick both a From and To date'); return; }
+  if(toStr < fromStr){ toast('"To" date must be on or after "From" date'); return; }
+
+  // Build every calendar date from fromStr to toStr inclusive, in local time
+  // (avoids UTC day-shift bugs some timezones hit with plain Date parsing).
+  const dates = [];
+  let [y,m,d] = fromStr.split('-').map(Number);
+  const [ey,em,ed] = toStr.split('-').map(Number);
+  const cur = new Date(y, m-1, d);
+  const end = new Date(ey, em-1, ed);
+  let guard = 0;
+  while(cur <= end && guard < 400){ // safety cap so a mistaken huge range can't hang the browser
+    dates.push(cur.toISOString().slice(0,10));
+    cur.setDate(cur.getDate()+1);
+    guard++;
+  }
+
+  const data = await loadBatchData(S.currentBatchId);
+  const existing = new Set(data.attendanceDates);
+  const newDates = dates.filter(ds=>!existing.has(ds));
+  if(newDates.length===0){ toast('All dates in that range are already added'); return; }
+  data.attendanceDates = data.attendanceDates.concat(newDates).sort();
+  await saveBatchData(S.currentBatchId, data);
+  S.attDate = newDates[newDates.length-1];
+  toast(`${newDates.length} date${newDates.length===1?'':'s'} added (${dates.length - newDates.length} already existed)`);
+  await renderAttBody();
+}
+
 async function deleteAttDate(dateStr){
   const data = await loadBatchData(S.currentBatchId);
   data.attendanceDates = data.attendanceDates.filter(ds=>ds!==dateStr);
@@ -2733,6 +2764,11 @@ async function renderAttBody(){
           <button class="btn btn-amber" onclick="addAttDate()">+ Add Date</button>
         </div>
         <button class="btn btn-sm btn-amber" onclick="showAttendanceLinkModal()">📎 Attendance Link & QR</button>
+      </div>
+      <div class="btn-row" style="align-items:flex-end;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);">
+        <div class="field" style="margin-bottom:0;"><label>Or add a range — From</label><input type="date" id="att-range-from"></div>
+        <div class="field" style="margin-bottom:0;"><label>To</label><input type="date" id="att-range-to"></div>
+        <button class="btn" onclick="addAttDateRange()">+ Add Every Day In Range</button>
       </div>
       <p style="color:var(--muted);font-size:.78rem;margin-top:8px;">One link works for the whole batch, every date — share it once. Members pick the date themselves and tap their own name to check in.</p>
     </div>
