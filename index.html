@@ -157,6 +157,25 @@
   .rank-input{width:34px;padding:4px 1px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:.85rem;text-align:center;user-select:none;}
   .rank-input:focus{user-select:text;}
 
+  /* ---------- Batch Members: responsive table (desktop) / cards (mobile) ---------- */
+  .bm-table-wrap{display:block;width:100%;}
+  .bm-table{table-layout:fixed;width:100%;font-size:.82rem;}
+  .bm-table th{padding:8px 6px;font-size:.68rem;}
+  .bm-table td{padding:8px 6px;}
+  .bm-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dup-badge{display:inline-block;background:var(--paper-soft);border:1px solid var(--line);color:var(--muted);font-size:.68rem;font-weight:800;padding:1px 6px;border-radius:10px;cursor:pointer;vertical-align:middle;}
+  .dup-badge:hover{border-color:var(--amber);color:var(--amber-deep);}
+  .conflict-badge{font-size:.82rem;cursor:default;vertical-align:middle;}
+  .bm-cards-wrap{display:none;}
+  .bm-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+  .bm-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:.95rem;}
+  .bm-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;font-size:.82rem;}
+  .bm-card-label{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;}
+  @media (max-width:820px){
+    .bm-table-wrap{display:none;}
+    .bm-cards-wrap{display:block;}
+  }
+
   .btn{padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--paper);font-weight:600;font-size:.85rem;color:var(--ink);}
   .btn:hover{border-color:var(--amber);}
   .btn-amber{background:var(--amber);border-color:var(--amber);color:#2B1B04;}
@@ -763,6 +782,75 @@ function fmtDate(iso){
   const d = new Date(iso);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+
+// ------------------------------------------------------------------
+// Duplicate-registration handling.
+//
+// The same person sometimes submits the registration form more than once
+// (retry, filled it in twice, etc.), creating multiple student records that
+// share the same phone number. We never delete or silently merge those
+// records — every one of them stays exactly as submitted, and admin can
+// still find and permanently remove any of them from Registration →
+// Approved/Kicked. What we DO for VIEWING purposes (this Members page, its
+// search box, and its member count) is show each phone number only once,
+// using whichever of its records was updated most recently, and flag it
+// when the duplicate records actually disagree on name/state/leader so
+// admin knows to take a look rather than silently picking one.
+// ------------------------------------------------------------------
+function normalizePhone(phone){
+  if(!phone) return '';
+  let digits = String(phone).replace(/[^\d]/g, '');
+  // Malaysia country code: treat 60xxxxxxxxx the same as 0xxxxxxxxx.
+  if(digits.startsWith('60') && digits.length >= 10){
+    digits = '0' + digits.slice(2);
+  }
+  return digits;
+}
+
+function studentRecencyTs(s){
+  return new Date(s.updatedAt || s.approvedAt || s.registeredAt || 0).getTime();
+}
+
+// Groups students by normalized phone. Students with no phone at all can't
+// be matched to anyone, so each gets its own single-record group.
+function groupStudentsByPhone(students){
+  const groups = {};
+  const order = [];
+  students.forEach(s => {
+    const norm = normalizePhone(s.phone);
+    const key = norm || ('__nophone_'+s.id);
+    if(!groups[key]){ groups[key] = []; order.push(key); }
+    groups[key].push(s);
+  });
+  return order.map(key => groups[key]);
+}
+
+function pickDisplayRecord(group){
+  return group.slice().sort((a,b)=> studentRecencyTs(b) - studentRecencyTs(a))[0];
+}
+
+// True when two or more records in the group disagree on name/state/leader
+// (phone is already guaranteed to match — that's how they got grouped).
+function groupHasConflict(group){
+  if(group.length <= 1) return false;
+  const display = pickDisplayRecord(group);
+  const fields = ['name','agentId','leader'];
+  return group.some(s => s.id !== display.id && fields.some(f => (s[f]||'').trim().toLowerCase() !== (display[f]||'').trim().toLowerCase()));
+}
+
+// The single function every view on this page should use: pass in the full
+// (unfiltered) student list for the batch, get back one row per unique
+// phone number, each carrying the record to display plus its full duplicate
+// group and whether that group disagrees on any field.
+function dedupeStudentsByPhone(students){
+  return groupStudentsByPhone(students).map(group => ({
+    display: pickDisplayRecord(group),
+    group,
+    count: group.length,
+    hasConflict: groupHasConflict(group)
+  }));
+}
+
 function fmtDateShort(iso){
   if(!iso) return '-';
   const d = new Date(iso+'T00:00:00');
@@ -1827,6 +1915,14 @@ async function viewBatchMembers(c){
   await renderBatchMembersTable();
 }
 
+function attendedDaysFor(data, studentId){
+  let n = 0;
+  for(const ds of data.attendanceDates){
+    if(data.attendance[ds] && data.attendance[ds][studentId]) n++;
+  }
+  return n;
+}
+
 async function renderBatchMembersTable(){
   const body = document.getElementById('batch-members-body');
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
@@ -1834,39 +1930,122 @@ async function renderBatchMembersTable(){
   const data = await loadBatchData(S.currentBatchId);
   const totalDays = data.attendanceDates.length;
   const q = (document.getElementById('bm-search')?.value || '').trim().toLowerCase();
-  let students = data.students.slice().sort((a,b)=>a.name.localeCompare(b.name));
+
+  // One row per unique phone number (see dedupeStudentsByPhone above) — the
+  // underlying duplicate records are never touched, just collapsed for display.
+  let rows = dedupeStudentsByPhone(data.students).sort((a,b)=>a.display.name.localeCompare(b.display.name));
   if(q){
-    students = students.filter(s => s.name.toLowerCase().includes(q) || (s.phone||'').includes(q));
+    rows = rows.filter(r => r.display.name.toLowerCase().includes(q) || (r.display.phone||'').includes(q));
   }
+
+  const renderRow = (r) => {
+    const s = r.display;
+    const attDays = attendedDaysFor(data, s.id);
+    const dupBadge = r.count>1 ? `<button class="dup-badge" onclick="showDuplicateGroupModal('${s.id}')" title="${r.count} registrations share this phone number">×${r.count}</button>` : '';
+    const conflictBadge = r.hasConflict ? `<span class="conflict-badge" title="These duplicate records disagree on name, state or leader — click ×${r.count} to review">⚠️</span>` : '';
+    return { s, attDays, dupBadge, conflictBadge };
+  };
+
+  const countLabel = `${rows.length} member${rows.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}`;
+
+  if(rows.length===0){
+    body.innerHTML = `<div class="card"><h3 style="margin-top:0;">${countLabel}</h3><div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div></div>`;
+    return;
+  }
+
   body.innerHTML = `
-    <div class="card" style="overflow-x:auto;">
-      <h3 style="margin-top:0;">${students.length} member${students.length===1?'':'s'}${q ? ` matching "${escapeHtml(q)}"` : ''}</h3>
-      ${students.length===0 ? `<div class="empty-state">${q ? 'No matches' : 'No one has registered yet'}</div>` : `
-      <table>
-        <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th><th>Attended</th><th></th></tr></thead>
-        <tbody>
-          ${students.map(s=>{
-            let attDays = 0;
-            for(const ds of data.attendanceDates){
-              if(data.attendance[ds] && data.attendance[ds][s.id]) attDays++;
-            }
-            return `
-            <tr>
-              <td>${escapeHtml(s.name)}</td>
-              <td>${escapeHtml(s.agentId||'-')}</td>
-              <td>${escapeHtml(s.phone)}</td>
-              <td>${escapeHtml(s.leader||'-')}</td>
-              <td>${escapeHtml(s.notes||'-')}</td>
-              <td><span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span></td>
-              <td>${fmtDate(s.registeredAt)}</td>
-              <td style="text-align:center;${totalDays>0 && attDays===0 ? 'color:var(--danger);font-weight:800;' : ''}">${attDays}${totalDays>0?`/${totalDays}`:''}</td>
-              <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`}
+    <div class="card">
+      <h3 style="margin-top:0;">${countLabel}</h3>
+
+      <div class="bm-table-wrap">
+        <table class="bm-table">
+          <colgroup>
+            <col style="width:20%"><col style="width:11%"><col style="width:13%">
+            <col style="width:13%"><col style="width:11%"><col style="width:9%">
+            <col style="width:10%"><col style="width:8%"><col style="width:5%">
+          </colgroup>
+          <thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Status</th><th>Registered</th><th>Attended</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(r=>{
+              const { s, attDays, dupBadge, conflictBadge } = renderRow(r);
+              return `
+              <tr>
+                <td class="bm-ellipsis" title="${escapeHtml(s.name)}"><b>${escapeHtml(s.name)}</b> ${dupBadge}${conflictBadge}</td>
+                <td class="bm-ellipsis" title="${escapeHtml(s.agentId||'-')}">${escapeHtml(s.agentId||'-')}</td>
+                <td class="bm-ellipsis" title="${escapeHtml(s.phone)}">${escapeHtml(s.phone)}</td>
+                <td class="bm-ellipsis" title="${escapeHtml(s.leader||'-')}">${escapeHtml(s.leader||'-')}</td>
+                <td class="bm-ellipsis" title="${escapeHtml(s.notes||'-')}">${escapeHtml(s.notes||'-')}</td>
+                <td><span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span></td>
+                <td class="bm-ellipsis">${fmtDate(s.registeredAt)}</td>
+                <td style="text-align:center;${totalDays>0 && attDays===0 ? 'color:var(--danger);font-weight:800;' : ''}">${attDays}${totalDays>0?`/${totalDays}`:''}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bm-cards-wrap">
+        ${rows.map(r=>{
+          const { s, attDays, dupBadge, conflictBadge } = renderRow(r);
+          return `
+          <div class="bm-card">
+            <div class="bm-card-head">
+              <b>${escapeHtml(s.name)}</b> ${dupBadge}${conflictBadge}
+              <span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span>
+            </div>
+            <div class="bm-card-grid">
+              <div><span class="bm-card-label">State</span>${escapeHtml(s.agentId||'-')}</div>
+              <div><span class="bm-card-label">Phone</span>${escapeHtml(s.phone)}</div>
+              <div><span class="bm-card-label">Team/Leader</span>${escapeHtml(s.leader||'-')}</div>
+              <div><span class="bm-card-label">Attended</span>${attDays}${totalDays>0?`/${totalDays}`:''}</div>
+              <div><span class="bm-card-label">Registered</span>${fmtDate(s.registeredAt)}</div>
+              <div><span class="bm-card-label">Notes</span>${escapeHtml(s.notes||'-')}</div>
+            </div>
+            <button class="btn btn-sm btn-danger" style="width:100%;margin-top:10px;" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')">✕ Kick Out</button>
+          </div>`;
+        }).join('')}
+      </div>
     </div>
   `;
+}
+
+function showDuplicateGroupModal(anyStudentIdInGroup){
+  (async () => {
+    const data = await loadBatchData(S.currentBatchId);
+    const target = data.students.find(x=>x.id===anyStudentIdInGroup);
+    if(!target) return;
+    const normTarget = normalizePhone(target.phone);
+    const group = data.students.filter(s => normalizePhone(s.phone) === normTarget);
+    const display = pickDisplayRecord(group);
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+        <div class="modal" style="max-width:640px;">
+          <h3 style="margin-top:0;">${group.length} registrations share this phone number</h3>
+          <p style="color:var(--muted);font-size:.82rem;">Nothing here is deleted or merged automatically. The Members list shows the most recently updated one (marked ★ below) — the others are still full records you can review, edit, or remove individually.</p>
+          <div style="max-height:50vh;overflow-y:auto;">
+            ${group.map(s=>`
+              <div style="border:1px solid ${s.id===display.id?'var(--amber)':'var(--line)'};border-radius:10px;padding:12px 14px;margin-bottom:10px;${s.id===display.id?'background:rgba(232,163,61,.08);':''}">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <b>${s.id===display.id?'★ ':''}${escapeHtml(s.name)}</b>
+                  <span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span>
+                </div>
+                <div style="font-size:.82rem;color:var(--muted);margin-top:4px;line-height:1.6;">
+                  State: ${escapeHtml(s.agentId||'-')} · Phone: ${escapeHtml(s.phone)} · Team/Leader: ${escapeHtml(s.leader||'-')}<br>
+                  Notes: ${escapeHtml(s.notes||'-')}<br>
+                  Registered: ${fmtDate(s.registeredAt)}${s.updatedAt?` · Last updated: ${fmtDate(s.updatedAt)}`:''}
+                </div>
+                <div class="btn-row" style="margin-top:8px;">
+                  <button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}');closeModal();">✕ Kick This Record</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn" style="width:100%;margin-top:6px;" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    `;
+  })();
 }
 
 async function removeBatchMember(studentId, name){
@@ -2262,6 +2441,7 @@ async function saveEditPending(studentId){
   s.agentId = document.getElementById('ep-agentid').value.trim();
   s.leader = document.getElementById('ep-leader').value.trim();
   s.notes = document.getElementById('ep-notes').value.trim();
+  s.updatedAt = new Date().toISOString();
   await saveBatchData(S.currentBatchId, data);
   closeModal();
   toast('Updated');
