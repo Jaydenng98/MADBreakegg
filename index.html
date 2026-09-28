@@ -163,6 +163,11 @@
   .bm-table th{padding:8px 6px;font-size:.68rem;}
   .bm-table td{padding:8px 6px;}
   .bm-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bm-tap{cursor:pointer;}
+  .bm-tap:hover{background:rgba(232,163,61,.12);}
+  .bm-popup{position:absolute;z-index:9999;background:var(--board);color:var(--chalk);padding:10px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:320px;font-size:.82rem;line-height:1.4;}
+  .bm-popup b{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;color:var(--amber);margin-bottom:4px;}
+  .bm-popup div{white-space:pre-wrap;word-break:break-word;}
   .dup-badge{display:inline-block;background:var(--paper-soft);border:1px solid var(--line);color:var(--muted);font-size:.68rem;font-weight:800;padding:1px 6px;border-radius:10px;cursor:pointer;vertical-align:middle;}
   .dup-badge:hover{border-color:var(--amber);color:var(--amber-deep);}
   .conflict-badge{font-size:.82rem;cursor:default;vertical-align:middle;}
@@ -1798,6 +1803,8 @@ async function viewBatches(c){
         const link = buildRegistrationLink(b);
         const accessLink = buildMemberAccessLink(b);
         const quickLink = buildQuickAccessLink(b);
+        const attLink = buildAttendanceLink(b);
+        const bNameEsc = escapeHtml(b.name).replace(/'/g,"\\'");
         return `
         <div class="batch-card">
           <div class="batch-card-head">
@@ -1827,6 +1834,9 @@ async function viewBatches(c){
             <div class="btn-row">
               <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${link}')">🔗 Registration Link</button>
               <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${quickLink}','Quick Access Link (One Link For Everyone)','Share this ONE link with the whole batch — anyone opens it and lands straight on the shared batch view (Ranking Board, Photos & Info) — no login needed. They only pick their name when they want to do something personal, like add an Appointment or check in.')">⚡ Quick Access Link</button>
+            </div>
+            <div class="btn-row" style="margin-top:8px;">
+              <button class="btn btn-sm" style="flex:1;" onclick="showRegQrModal('${attLink}','Attendance Link — ${bNameEsc}','One link for the whole batch — share it once. Members open it, pick the session date themselves, then tap their own name to mark themselves present. It works for every date you\\'ve added, so you never need to generate a new link.')">📎 Attendance Link</button>
             </div>
           </div>
 
@@ -1968,17 +1978,19 @@ async function renderBatchMembersTable(){
           <tbody>
             ${rows.map(r=>{
               const { s, attDays, dupBadge, conflictBadge } = renderRow(r);
+              const nameEsc = escapeHtml(s.name).replace(/'/g,"\\'");
+              const notesEsc = escapeHtml(s.notes||'-').replace(/'/g,"\\'");
               return `
               <tr>
-                <td class="bm-ellipsis" title="${escapeHtml(s.name)}"><b>${escapeHtml(s.name)}</b> ${dupBadge}${conflictBadge}</td>
-                <td class="bm-ellipsis" title="${escapeHtml(s.agentId||'-')}">${escapeHtml(s.agentId||'-')}</td>
-                <td class="bm-ellipsis" title="${escapeHtml(s.phone)}">${escapeHtml(s.phone)}</td>
-                <td class="bm-ellipsis" title="${escapeHtml(s.leader||'-')}">${escapeHtml(s.leader||'-')}</td>
-                <td class="bm-ellipsis" title="${escapeHtml(s.notes||'-')}">${escapeHtml(s.notes||'-')}</td>
+                <td class="bm-ellipsis bm-tap" onclick="showFullTextPopup(event,'Name','${nameEsc}')"><b>${escapeHtml(s.name)}</b> ${dupBadge}${conflictBadge}</td>
+                <td class="bm-ellipsis bm-tap" onclick="showFullTextPopup(event,'State','${escapeHtml(s.agentId||'-')}')">${escapeHtml(s.agentId||'-')}</td>
+                <td class="bm-ellipsis bm-tap" onclick="showFullTextPopup(event,'Phone','${escapeHtml(s.phone)}')">${escapeHtml(s.phone)}</td>
+                <td class="bm-ellipsis bm-tap" onclick="showFullTextPopup(event,'Team/Leader','${escapeHtml(s.leader||'-')}')">${escapeHtml(s.leader||'-')}</td>
+                <td class="bm-ellipsis bm-tap" onclick="showFullTextPopup(event,'Notes','${notesEsc}')">${escapeHtml(s.notes||'-')}</td>
                 <td><span class="badge ${s.status==='approved'||!s.status ? 'badge-active' : 'badge-cancelled'}">${escapeHtml(s.status||'approved')}</span></td>
                 <td class="bm-ellipsis">${fmtDate(s.registeredAt)}</td>
                 <td style="text-align:center;${totalDays>0 && attDays===0 ? 'color:var(--danger);font-weight:800;' : ''}">${attDays}${totalDays>0?`/${totalDays}`:''}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${escapeHtml(s.name).replace(/'/g,"\\'")}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
+                <td><button class="btn btn-sm btn-danger" onclick="removeBatchMember('${s.id}','${nameEsc}')" title="Kick out ${escapeHtml(s.name)}">✕</button></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -2008,6 +2020,36 @@ async function renderBatchMembersTable(){
       </div>
     </div>
   `;
+}
+
+// Truncated cells in the Members table are tappable/clickable (not just
+// hover-title, which doesn't work at all on touch devices) — this shows the
+// full untruncated value in a small popover near where it was tapped.
+function showFullTextPopup(event, label, text){
+  event.stopPropagation();
+  document.querySelectorAll('.bm-popup').forEach(el=>el.remove());
+  if(!text || text === '-') return;
+  const popup = document.createElement('div');
+  popup.className = 'bm-popup';
+  popup.innerHTML = `<b>${escapeHtml(label)}</b><div>${escapeHtml(text)}</div>`;
+  document.body.appendChild(popup);
+  const rect = event.currentTarget.getBoundingClientRect();
+  const top = window.scrollY + rect.bottom + 6;
+  let left = window.scrollX + rect.left;
+  document.body.style.position = document.body.style.position || '';
+  popup.style.top = top + 'px';
+  popup.style.left = left + 'px';
+  // keep it on-screen horizontally
+  requestAnimationFrame(()=>{
+    const pw = popup.getBoundingClientRect().width;
+    if(left + pw > window.scrollX + window.innerWidth - 12){
+      popup.style.left = (window.scrollX + window.innerWidth - pw - 12) + 'px';
+    }
+  });
+  const closeOnOutside = (e) => {
+    if(!popup.contains(e.target)){ popup.remove(); document.removeEventListener('click', closeOnOutside); }
+  };
+  setTimeout(()=>document.addEventListener('click', closeOnOutside), 0);
 }
 
 function showDuplicateGroupModal(anyStudentIdInGroup){
@@ -2927,14 +2969,19 @@ async function renderAttBody(){
   if(!S.currentBatchId){ body.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>Please select a batch first.</div>`; return; }
   const data = await loadBatchData(S.currentBatchId);
   const approvedStudents = data.students.filter(s=>(s.status||'approved')==='approved');
+  // Same person registered more than once shows up ONCE here too — see
+  // dedupeStudentsByPhone. Their attendance is the UNION of every duplicate
+  // record's marks (if they checked in under either copy of themselves on a
+  // given date, that date still counts as present), so nothing gets missed.
+  const groups = dedupeStudentsByPhone(approvedStudents);
   if(!S.attDate || !data.attendanceDates.includes(S.attDate)){
     S.attDate = data.attendanceDates[data.attendanceDates.length-1] || '';
   }
   const d = S.attDate;
-  const attForDate = d ? (data.attendance[d] || {}) : {};
-  const presentCount = Object.values(attForDate).filter(Boolean).length;
+  const isPresentOn = (groupIds, ds) => groupIds.some(sid => data.attendance[ds] && data.attendance[ds][sid]);
+  const presentCount = d ? groups.filter(g=>isPresentOn(g.group.map(x=>x.id), d)).length : 0;
   const attQ = (S.attSearch || '').trim().toLowerCase();
-  const filteredStudents = attQ ? approvedStudents.filter(s=>s.name.toLowerCase().includes(attQ)) : approvedStudents;
+  const filteredGroups = attQ ? groups.filter(g=>g.display.name.toLowerCase().includes(attQ)) : groups;
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:14px;">
@@ -2962,7 +3009,7 @@ async function renderAttBody(){
     <div class="card" style="margin-bottom:16px;">
       <div class="btn-row" style="align-items:center;justify-content:space-between;">
         <div><h3 style="margin:0;">Attendance Summary</h3>
-        <div class="stat-num">${presentCount} / ${approvedStudents.length}</div>
+        <div class="stat-num">${presentCount} / ${groups.length}</div>
         <div class="stat-label">Present on ${dateLabel(d)}</div></div>
         <button class="btn btn-sm" onclick="editAttDate('${d}')">✏️ Edit Date</button>
       </div>
@@ -2972,13 +3019,17 @@ async function renderAttBody(){
     </div>
     <div class="card" style="margin-bottom:16px;">
       <h3 style="margin-top:0;">Member Attendance — ${dateLabel(d)}</h3>
-      ${filteredStudents.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
+      ${filteredGroups.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
       <table><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        ${filteredStudents.map(s=>{
-          const present = !!attForDate[s.id];
+        ${filteredGroups.map(g=>{
+          const s = g.display;
+          const groupIds = g.group.map(x=>x.id);
+          const present = isPresentOn(groupIds, d);
+          const dupBadge = g.count>1 ? `<button class="dup-badge" onclick="showDuplicateGroupModal('${s.id}')" title="${g.count} registrations share this phone number">×${g.count}</button>` : '';
+          const conflictBadge = g.hasConflict ? `<span class="conflict-badge" title="Duplicate records disagree on name, state or leader">⚠️</span>` : '';
           return `<tr>
-            <td>${escapeHtml(s.name)}</td>
+            <td><b>${escapeHtml(s.name)}</b> ${dupBadge}${conflictBadge}</td>
             <td>${escapeHtml(s.phone)}</td>
             <td>${present ? `<span class="tick-yes">✓ Present</span>` : `<span class="tick-no">· Absent</span>`}</td>
             <td><button class="btn btn-sm" onclick="toggleAttendance('${s.id}','${d}')">${present?'Mark Absent':'Mark Present'}</button></td>
@@ -2988,17 +3039,21 @@ async function renderAttBody(){
     </div>
     <div class="card" style="overflow-x:auto;">
       <h3 style="margin-top:0;">Full Attendance Grid</h3>
-      ${filteredStudents.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
+      ${filteredGroups.length===0 ? `<div class="empty-state">${attQ ? 'No matching members' : 'No members'}</div>` : `
       <table><thead><tr><th>Name</th>${data.attendanceDates.map(ds=>`<th>${dateLabel(ds)}</th>`).join('')}</tr></thead>
       <tbody>
-        ${filteredStudents.map(s=>`
+        ${filteredGroups.map(g=>{
+          const s = g.display;
+          const groupIds = g.group.map(x=>x.id);
+          const dupBadge = g.count>1 ? `<button class="dup-badge" onclick="showDuplicateGroupModal('${s.id}')" title="${g.count} registrations share this phone number">×${g.count}</button>` : '';
+          return `
           <tr>
-            <td>${escapeHtml(s.name)}</td>
+            <td><b>${escapeHtml(s.name)}</b> ${dupBadge}</td>
             ${data.attendanceDates.map(ds=>{
-              const present = !!(data.attendance[ds] && data.attendance[ds][s.id]);
+              const present = isPresentOn(groupIds, ds);
               return `<td style="text-align:center;cursor:pointer;" onclick="toggleAttendance('${s.id}','${ds}')">${present?'<span class="tick-yes">✓</span>':'<span class="tick-no">·</span>'}</td>`;
             }).join('')}
-          </tr>`).join('')}
+          </tr>`;}).join('')}
       </tbody></table>`}
     </div>
     `}
@@ -3027,8 +3082,19 @@ async function regenCode(d){
 
 async function toggleAttendance(studentId, d){
   const data = await loadBatchData(S.currentBatchId);
-  const currentlyPresent = !!(data.attendance[d] && data.attendance[d][studentId]);
-  await markAttendanceIndependent(S.currentBatchId, d, studentId, !currentlyPresent);
+  const target = data.students.find(x=>x.id===studentId);
+  // Mark/unmark every duplicate record for this same phone number together —
+  // otherwise "Mark Absent" could leave a hidden duplicate still checked in,
+  // making the person look present again the next time the page loads.
+  const groupIds = target
+    ? data.students.filter(s => normalizePhone(s.phone) === normalizePhone(target.phone)).map(s=>s.id)
+    : [studentId];
+  const currentlyPresent = groupIds.some(sid => data.attendance[d] && data.attendance[d][sid]);
+  if(currentlyPresent){
+    for(const sid of groupIds){ await markAttendanceIndependent(S.currentBatchId, d, sid, false); }
+  } else {
+    await markAttendanceIndependent(S.currentBatchId, d, studentId, true);
+  }
   await renderAttBody();
 }
 
@@ -3614,7 +3680,16 @@ async function computeRankingRows(batchId){
   const data = await loadBatchData(batchId);
   const ranking = await loadRanking(batchId);
 
-  return data.students.filter(s=>(s.status||'approved')==='approved').map(s=>{
+  const approved = data.students.filter(s=>(s.status||'approved')==='approved');
+  // Same person registered more than once (matched by normalized phone) only
+  // gets ONE row here, using whichever registration was most recently
+  // updated — otherwise they'd be double-counted and double-ranked. Nothing
+  // is deleted or merged in storage; the other record's scores (if any were
+  // accidentally entered against it) just aren't the ones shown.
+  const deduped = dedupeStudentsByPhone(approved);
+
+  return deduped.map(grp => {
+    const s = grp.display;
     const r = ranking[s.id] || {};
     const apptScore = Number(r.appt||0);
     const recruitScore = Number(r.recruit||0);
@@ -3625,7 +3700,7 @@ async function computeRankingRows(batchId){
     const homework = Number(r.homework||0);
     const activityScore = readingScore+socialScore+salesScore+homework;
     const total = apptScore+recruitScore+readingScore+socialScore+presentation+salesScore+homework;
-    return { student:s, apptScore, recruitScore, readingScore, socialScore, presentation, salesScore, homework, activityScore, total };
+    return { student:s, apptScore, recruitScore, readingScore, socialScore, presentation, salesScore, homework, activityScore, total, dupCount: grp.count, hasConflict: grp.hasConflict, groupIds: grp.group.map(x=>x.id) };
   }).sort((a,b)=>b.total-a.total);
 }
 
@@ -3640,7 +3715,10 @@ async function renderRankingBody(){
   allRows.forEach(row=>{
     let present = 0;
     for(const ds of batchData.attendanceDates){
-      if(batchData.attendance[ds] && batchData.attendance[ds][row.student.id]) present++;
+      // Union across every duplicate record in the group — if the person
+      // checked in under EITHER copy of themselves, it still counts.
+      const presentToday = row.groupIds.some(sid => batchData.attendance[ds] && batchData.attendance[ds][sid]);
+      if(presentToday) present++;
     }
     attendanceDaysById[row.student.id] = present;
   });
@@ -3685,7 +3763,7 @@ async function renderRankingBody(){
             return `
             <tr>
               <td><b>${i+1}</b></td>
-              <td><b>${escapeHtml(row.student.name)}</b></td>
+              <td><b>${escapeHtml(row.student.name)}</b> ${row.dupCount>1 ? `<button class="dup-badge" onclick="showDuplicateGroupModal('${row.student.id}')" title="${row.dupCount} registrations share this phone number">×${row.dupCount}</button>` : ''}${row.hasConflict ? `<span class="conflict-badge" title="Duplicate records disagree on name, state or leader — click ×${row.dupCount} to review">⚠️</span>` : ''}</td>
               <td><input type="number" min="0" class="rank-input" value="${row.apptScore}" onblur="updateRankingField('${row.student.id}','appt',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.recruitScore}" onblur="updateRankingField('${row.student.id}','recruit',this.value)"></td>
               <td><input type="number" min="0" class="rank-input" value="${row.readingScore}" onblur="updateRankingField('${row.student.id}','reading',this.value)"></td>
