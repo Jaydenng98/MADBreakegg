@@ -804,6 +804,17 @@ function fmtDate(iso){
 // when the duplicate records actually disagree on name/state/leader so
 // admin knows to take a look rather than silently picking one.
 // ------------------------------------------------------------------
+// Ranking search: match by name, or by phone digits (phone itself is never displayed)
+function rankRowMatches(student, q){
+  if(!q) return true;
+  if(String(student.name||'').toLowerCase().includes(q)) return true;
+  const qd = q.replace(/[^\d]/g,'');
+  if(qd.length < 3) return false;
+  const sp = normalizePhone(student.phone);
+  const qn = normalizePhone(qd);
+  return sp.includes(qd) || (qn && sp.includes(qn));
+}
+
 function normalizePhone(phone){
   if(!phone) return '';
   let digits = String(phone).replace(/[^\d]/g, '');
@@ -1309,7 +1320,7 @@ async function renderPbvBody(batchId){
     const allRows = await computeRankingRows(batchId);
     const top3 = await loadTop3(batchId);
     const pbvQ = (S.pbvRankSearch || '').trim().toLowerCase();
-    const rows = pbvQ ? allRows.filter(r=>r.student.name.toLowerCase().includes(pbvQ)) : allRows;
+    const rows = pbvQ ? allRows.filter(r=>rankRowMatches(r.student, pbvQ)) : allRows;
     body.innerHTML = `
       ${top3.poster ? `
       <div style="margin-bottom:16px;">
@@ -1318,9 +1329,9 @@ async function renderPbvBody(batchId){
           <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
         </div>
       </div>` : ''}
-      <input id="pbv-rank-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.pbvRankSearch||'')}" oninput="onPbvRankSearch('${batchId}', this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;">
+      <input id="pbv-rank-search" placeholder="🔍 Search by name or phone..." value="${escapeHtml(S.pbvRankSearch||'')}" oninput="onPbvRankSearch('${batchId}', this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;">
       <div style="overflow-x:auto;">
-      ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">${pbvQ ? 'No matching names.' : 'No approved members yet.'}</p>` : `
+      ${rows.length===0 ? `<p style="color:var(--muted);font-size:.85rem;">${pbvQ ? 'No matching name or phone.' : 'No approved members yet.'}</p>` : `
       <table>
         <thead><tr><th>Rank</th><th>Name</th><th>Total</th></tr></thead>
         <tbody>${rows.map(r=>{ const i = allRows.indexOf(r); return `<tr><td><b>${i+1}</b></td><td>${escapeHtml(r.student.name)}</td><td><b>${r.total}</b></td></tr>`; }).join('')}</tbody>
@@ -3884,7 +3895,7 @@ async function renderRankingBody(){
     attendanceDaysById[row.student.id] = present;
   });
   const q = (S.rankingSearch || '').trim().toLowerCase();
-  const rows = q ? allRows.filter(r => r.student.name.toLowerCase().includes(q)) : allRows;
+  const rows = q ? allRows.filter(r => rankRowMatches(r.student, q)) : allRows;
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
@@ -3904,7 +3915,7 @@ async function renderRankingBody(){
       `}
     </div>
     <div class="card" style="margin-bottom:16px;">
-      <input id="ranking-search" placeholder="🔍 Search by name..." value="${escapeHtml(S.rankingSearch||'')}" oninput="onRankingSearch(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
+      <input id="ranking-search" placeholder="🔍 Search by name or phone..." value="${escapeHtml(S.rankingSearch||'')}" oninput="onRankingSearch(this.value)" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;">
     </div>
     <div class="card" style="overflow-x:auto;">
       <p style="color:var(--muted);font-size:.78rem;margin-top:0;margin-bottom:10px;">"Attended" is for your own reference only — it's not part of the Total score, and won't appear in Save as Image, Print or Excel exports.</p>
