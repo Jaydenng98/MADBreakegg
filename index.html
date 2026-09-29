@@ -194,6 +194,7 @@
   .badge-active{background:rgba(232,163,61,.18);color:var(--amber-deep);}
   .badge-completed{background:rgba(62,142,79,.15);color:var(--success);}
   .badge-cancelled{background:rgba(193,68,60,.12);color:var(--danger);}
+  .badge-new{background:var(--amber-deep,#c97f1a);color:#fff;font-size:.68rem;padding:2px 8px;margin-left:6px;vertical-align:middle;letter-spacing:.02em;}
 
   .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
   .batch-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative;overflow:hidden;}
@@ -1471,9 +1472,11 @@ async function submitPublicRegistration(batchId){
   const errEl = document.getElementById('pr-err');
   if(!name || !phone || !agentId){ errEl.textContent = 'Please fill in your name, phone number and state'; errEl.style.display='block'; return; }
   const data = await loadBatchData(batchId);
-  if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){
-    errEl.textContent = 'This phone number has already registered for this batch';
-    errEl.style.display = 'block';
+  const normNew = normalizePhone(phone);
+  // Rejected registrations may try again; anyone else with this phone is already in this batch.
+  const existing = normNew && data.students.find(s => normalizePhone(s.phone)===normNew && s.status!=='rejected');
+  if(existing){
+    showAlreadyRegistered(batchId, existing, phone);
     return;
   }
   errEl.style.display = 'none';
@@ -1487,6 +1490,24 @@ async function submitPublicRegistration(batchId){
   const b = batches.find(x=>x.id===batchId);
   await logNote(batchId, b ? b.name : '', 'register', `${name} submitted a registration (pending approval)`);
   showRegistrationReceived();
+}
+
+function showAlreadyRegistered(batchId, s, typedPhone){
+  const st = s.status || 'approved';
+  const cfg = st==='approved'
+    ? { icon:'✅', title:"You're Already Registered", msg:`This phone number is already registered and <b>approved</b> for this batch${s.name?` under the name <b>${escapeHtml(s.name)}</b>`:''}. No need to register again — just sign in with your phone number.`, signIn:true }
+    : st==='pending'
+    ? { icon:'⏳', title:"You're Already Registered", msg:`This phone number has already submitted a registration for this batch${s.name?` as <b>${escapeHtml(s.name)}</b>`:''} and it's <b>waiting for admin approval</b>. No need to register again — you'll get a sign-in link once you're approved.`, signIn:false }
+    : { icon:'ℹ️', title:'Already Registered', msg:'This phone number is already on record for this batch. Please contact the admin if you need help.', signIn:false };
+  window.__dupRegPhone = typedPhone;
+  document.getElementById('pub-title').textContent = cfg.title;
+  document.getElementById('pubreg-form-area').innerHTML = `
+    <div style="text-align:center;">
+      <div style="font-size:2.4rem;margin-bottom:6px;">${cfg.icon}</div>
+      <p style="color:var(--muted);font-size:.9rem;line-height:1.5;">${cfg.msg}</p>
+      ${cfg.signIn ? `<button class="btn-primary" onclick="renderPublicLoginForm('${batchId}');const el=document.getElementById('guest-phone');if(el)el.value=window.__dupRegPhone||'';">Sign In</button>` : ''}
+    </div>
+  `;
 }
 
 function showRegistrationReceived(){
@@ -2296,7 +2317,7 @@ async function bulkAddStudents(){
   if(lines.length===0){ toast('Paste some rows first'); return; }
 
   const data = await loadBatchData(S.currentBatchId);
-  const existingPhones = new Set(data.students.map(s=>s.phone.replace(/\s/g,'')));
+  const existingPhones = new Set(data.students.filter(s=>s.status!=='rejected').map(s=>normalizePhone(s.phone)));
   let added = 0;
   const addedNames = [];
   const skippedRows = []; // { line, reason }
@@ -2314,7 +2335,7 @@ async function bulkAddStudents(){
     if(!name){ skippedRows.push({ line, reason: 'Missing name' }); return; }
     if(!state){ skippedRows.push({ line, reason: 'Missing state (check column order — should be Name, State, Phone, Team/Leader)' }); return; }
     if(!phone){ skippedRows.push({ line, reason: 'Missing phone' }); return; }
-    const normPhone = phone.replace(/\s/g,'');
+    const normPhone = normalizePhone(phone);
     if(existingPhones.has(normPhone)){ skippedRows.push({ line, reason: 'Phone already registered in this batch' }); return; }
 
     data.students.push({
@@ -2385,14 +2406,23 @@ function renderPendingTable(pending){
   </div>`;
 }
 
+// Approved members: most recently approved first (so new approvals don't get buried),
+// and anyone approved in the last 24h gets a 🆕 New tag.
+const NEW_MEMBER_WINDOW_MS = 24*60*60*1000;
+function approvedTs(s){ return new Date(s.approvedAt || s.registeredAt || 0).getTime() || 0; }
+function isNewlyApproved(s){ const ts = new Date(s.approvedAt||0).getTime(); return ts>0 && (Date.now()-ts) < NEW_MEMBER_WINDOW_MS; }
+
 function renderApprovedTable(approved){
   if(approved.length===0) return `<div class="card"><div class="empty-state">No approved members yet</div></div>`;
+  approved = approved.slice().sort((a,b)=> (approvedTs(b)-approvedTs(a)) || String(a.name||'').localeCompare(String(b.name||'')));
+  const newCount = approved.filter(isNewlyApproved).length;
   return `<div class="card" style="overflow-x:auto;">
+    ${newCount ? `<p style="margin:0 0 10px;font-size:.82rem;color:var(--muted);">Sorted by most recently approved · <b style="color:var(--amber-deep);">${newCount}</b> approved in the last 24 hours</p>` : `<p style="margin:0 0 10px;font-size:.82rem;color:var(--muted);">Sorted by most recently approved</p>`}
     <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
     <tbody>
       ${approved.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.name)}${isNewlyApproved(s) ? '<span class="badge badge-new">🆕 New</span>' : ''}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
           <td>${escapeHtml(s.leader||'-')}</td>
           <td>${fmtDate(s.approvedAt||s.registeredAt)}</td>
           <td class="btn-row">
@@ -2554,7 +2584,7 @@ async function adminAddStudent(){
   const leader = document.getElementById('ar-leader').value.trim();
   if(!name || !phone || !agentId){ toast('Please fill in name, phone and state'); return; }
   const data = await loadBatchData(S.currentBatchId);
-  if(data.students.find(s=>s.phone.replace(/\s/g,'')===phone.replace(/\s/g,''))){ toast('This phone number is already registered'); return; }
+  if(data.students.find(s=>normalizePhone(s.phone)===normalizePhone(phone) && s.status!=='rejected')){ toast('This phone number is already registered in this batch'); return; }
   const newStudent = {
     id: uid('s'), name, phone, agentId, leader, notes:'',
     status:'approved', password: genCode(6), accessToken: uid('mtok'),
@@ -2600,6 +2630,7 @@ async function reinstateStudent(studentId){
   const s = data.students.find(x=>x.id===studentId);
   if(!s) return;
   s.status = 'approved';
+  s.approvedAt = new Date().toISOString();
   delete s.kickedAt;
   await saveBatchData(S.currentBatchId, data);
   await recalcStudentCount(S.currentBatchId, data);
