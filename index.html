@@ -194,6 +194,7 @@
   .badge-active{background:rgba(232,163,61,.18);color:var(--amber-deep);}
   .badge-completed{background:rgba(62,142,79,.15);color:var(--success);}
   .badge-cancelled{background:rgba(193,68,60,.12);color:var(--danger);}
+  .badge-dup{background:rgba(193,68,60,.12);color:var(--danger);font-size:.68rem;padding:2px 8px;margin-left:6px;vertical-align:middle;}
   .badge-new{background:var(--amber-deep,#c97f1a);color:#fff;font-size:.68rem;padding:2px 8px;margin-left:6px;vertical-align:middle;letter-spacing:.02em;}
 
   .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
@@ -2416,13 +2417,19 @@ function renderApprovedTable(approved){
   if(approved.length===0) return `<div class="card"><div class="empty-state">No approved members yet</div></div>`;
   approved = approved.slice().sort((a,b)=> (approvedTs(b)-approvedTs(a)) || String(a.name||'').localeCompare(String(b.name||'')));
   const newCount = approved.filter(isNewlyApproved).length;
+  // Duplicate phone numbers among approved members (registered twice before the block existed)
+  const dupCount = {};
+  approved.forEach(s=>{ const k=normalizePhone(s.phone); if(k) dupCount[k]=(dupCount[k]||0)+1; });
+  const isDup = s => { const k=normalizePhone(s.phone); return k && dupCount[k]>1; };
+  const dupPhones = Object.values(dupCount).filter(n=>n>1).length;
   return `<div class="card" style="overflow-x:auto;">
+    ${dupPhones ? `<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:rgba(193,68,60,.08);color:var(--danger);font-size:.84rem;">⚠ <b>${dupPhones}</b> phone number(s) registered more than once. Click <b>Delete Duplicate</b> on the extra record — its check-ins, appointments, recruits and presentation spot move to the record you keep.</div>` : ''}
     ${newCount ? `<p style="margin:0 0 10px;font-size:.82rem;color:var(--muted);">Sorted by most recently approved · <b style="color:var(--amber-deep);">${newCount}</b> approved in the last 24 hours</p>` : `<p style="margin:0 0 10px;font-size:.82rem;color:var(--muted);">Sorted by most recently approved</p>`}
     <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Approved On</th><th></th></tr></thead>
     <tbody>
       ${approved.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}${isNewlyApproved(s) ? '<span class="badge badge-new">🆕 New</span>' : ''}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.name)}${isNewlyApproved(s) ? '<span class="badge badge-new">🆕 New</span>' : ''}${isDup(s) ? '<span class="badge badge-dup">⚠ Duplicate</span>' : ''}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
           <td>${escapeHtml(s.leader||'-')}</td>
           <td>${fmtDate(s.approvedAt||s.registeredAt)}</td>
           <td class="btn-row">
@@ -2430,10 +2437,90 @@ function renderApprovedTable(approved){
             <button class="btn btn-sm" onclick="resendCredentials('${s.id}')">Resend Login</button>
             <button class="btn btn-sm" onclick="transferStudent('${s.id}')">Transfer</button>
             <button class="btn btn-sm btn-danger" onclick="kickStudent('${s.id}')">Kick Out</button>
+            ${isDup(s) ? `<button class="btn btn-sm btn-danger" onclick="confirmDeleteDuplicate('${s.id}')">Delete Duplicate</button>` : ''}
           </td>
         </tr>`).join('')}
     </tbody></table>
   </div>`;
+}
+
+/* ------------------------------------------------------------
+   Delete Duplicate — removes one of two+ approved records sharing a
+   phone number, after moving everything tied to it onto the kept record
+   (attendance, appointments, recruits, presentation spot) so nothing is lost.
+------------------------------------------------------------ */
+async function confirmDeleteDuplicate(dupId){
+  const data = await loadBatchData(S.currentBatchId);
+  const dup = data.students.find(x=>x.id===dupId);
+  if(!dup) return;
+  const norm = normalizePhone(dup.phone);
+  const others = data.students.filter(x=>x.id!==dupId && (x.status||'approved')==='approved' && normalizePhone(x.phone)===norm);
+  if(others.length===0){ toast('No other record with this phone — nothing to merge into'); return; }
+  others.sort((a,b)=>new Date(a.registeredAt||0)-new Date(b.registeredAt||0));
+  const days = id => (data.attendanceDates||[]).filter(ds=>data.attendance[ds] && data.attendance[ds][id]).length;
+  const row = (s,label) => `<tr><td><b>${label}</b></td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.leader||'-')}</td><td>${fmtDate(s.registeredAt)}</td><td>${days(s.id)}</td></tr>`;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:640px;">
+        <h3 style="margin-top:0;">Delete Duplicate Record</h3>
+        <p style="font-size:.86rem;color:var(--muted);">Phone <b>${escapeHtml(dup.phone)}</b> is registered ${others.length+1} times. Choose which record to keep — the deleted one's check-ins, appointments, recruits and presentation spot move over to it.</p>
+        <div style="overflow-x:auto;">
+        <table><thead><tr><th></th><th>Name</th><th>State</th><th>Team/Leader</th><th>Registered</th><th>Check-ins</th></tr></thead>
+        <tbody>${row(dup,'🗑 Delete')}${others.map(o=>row(o,'Keep?')).join('')}</tbody></table>
+        </div>
+        <div class="field" style="margin-top:12px;"><label>Keep this record</label>
+          <select id="dd-keep">${others.map(o=>`<option value="${o.id}">${escapeHtml(o.name)} — registered ${fmtDate(o.registeredAt)}</option>`).join('')}</select>
+        </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-danger" onclick="deleteDuplicateStudent('${dupId}', document.getElementById('dd-keep').value)">Delete & Merge</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function deleteDuplicateStudent(dupId, keepId){
+  const bid = S.currentBatchId;
+  const data = await loadBatchData(bid);
+  const dup = data.students.find(x=>x.id===dupId);
+  const keep = data.students.find(x=>x.id===keepId);
+  if(!dup || !keep){ toast('Record not found — refresh and try again'); closeModal(); return; }
+
+  // 1) Attendance: carry every present day over, then remove the duplicate's rows
+  const dates = Object.keys(data.attendance||{}).filter(ds=>data.attendance[ds] && data.attendance[ds][dupId]);
+  for(const ds of dates){
+    if(!data.attendance[ds][keepId]) await markAttendanceIndependent(bid, ds, keepId, true);
+    await deleteJSON(attendanceMarkKey(bid, ds, dupId));
+    delete data.attendance[ds][dupId];
+  }
+
+  // 2) Appointments & recruits: reassign to the kept record
+  const appts = await loadAppointments(bid);
+  if(appts.some(a=>a.madeBy===dupId)){ appts.forEach(a=>{ if(a.madeBy===dupId) a.madeBy = keepId; }); await saveAppointments(bid, appts); }
+  const recs = await loadRecruitment(bid);
+  if(recs.some(r=>r.madeBy===dupId)){ recs.forEach(r=>{ if(r.madeBy===dupId) r.madeBy = keepId; }); await saveRecruitment(bid, recs); }
+
+  // 3) Presentation: point the spot at the kept record (or drop it if they're already placed)
+  const groups = await loadPresentation(bid);
+  let presChanged = false;
+  const keepPlaced = groups.some(g=>g.members.some(m=>m.studentId===keepId));
+  groups.forEach(g=>{
+    const before = g.members.length;
+    if(keepPlaced) g.members = g.members.filter(m=>m.studentId!==dupId);
+    else g.members.forEach(m=>{ if(m.studentId===dupId){ m.studentId = keepId; m.name = keep.name; presChanged = true; } });
+    if(g.members.length!==before) presChanged = true;
+  });
+  if(presChanged) await savePresentation(bid, groups);
+
+  // 4) Remove the duplicate record itself (excluded so the merge-before-save can't resurrect it)
+  data.students = data.students.filter(x=>x.id!==dupId);
+  await saveBatchData(bid, data, { excludeStudentIds: [dupId] });
+  await recalcStudentCount(bid, data);
+  const batch = S.batches.find(b=>b.id===bid);
+  await logNote(bid, batch ? batch.name : '', 'approval', `Duplicate record "${dup.name}" (${dup.phone}) deleted and merged into "${keep.name}"`);
+  closeModal();
+  toast(`Duplicate deleted — data merged into ${keep.name}`);
+  if(document.getElementById('reg-body')) await renderRegBody();
 }
 
 function renderKickedTable(kicked){
