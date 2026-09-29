@@ -1691,7 +1691,8 @@ async function viewDashboard(c){
   for(const b of batches){
     const data = await loadBatchData(b.id);
     data.students.filter(s=>(s.status||'approved')==='pending').forEach(s=>{
-      pendingList.push({ batchId: b.id, batchName: b.name, student: s });
+      const dupOf = findDuplicateOf(data.students, s);
+      pendingList.push({ batchId: b.id, batchName: b.name, student: s, dupOf });
     });
 
     if(b.status==='active' && !b.archived && data.attendanceDates.length > 0){
@@ -1744,11 +1745,15 @@ async function viewDashboard(c){
       <tbody>
         ${pendingList.map(p=>`
           <tr>
-            <td>${escapeHtml(p.student.name)}</td>
+            <td>${escapeHtml(p.student.name)}${p.dupOf ? `<span class="badge badge-dup" title="Same phone as ${escapeHtml(p.dupOf.name)} (${escapeHtml(p.dupOf.status||'approved')})">⚠ Duplicate</span>` : ''}</td>
             <td>${escapeHtml(p.student.phone)}</td>
             <td>${escapeHtml(p.batchName)}</td>
             <td>${fmtDate(p.student.registeredAt)}</td>
-            <td><button class="btn btn-sm btn-amber" onclick="dashApprove('${p.batchId}','${p.student.id}')">Approve</button></td>
+            <td class="btn-row">
+              <button class="btn btn-sm btn-amber" onclick="dashApprove('${p.batchId}','${p.student.id}')">Approve</button>
+              <button class="btn btn-sm btn-danger" onclick="dashReject('${p.batchId}','${p.student.id}')">Reject</button>
+              <button class="btn btn-sm btn-danger" onclick="dashDeletePending('${p.batchId}','${p.student.id}')">🗑 Delete</button>
+            </td>
           </tr>`).join('')}
       </tbody></table>`}
     </div>
@@ -1776,6 +1781,39 @@ async function dashApprove(batchId, studentId){
   S.currentBatchId = batchId;
   await approveStudent(studentId);
   await viewDashboard(document.getElementById('content'));
+}
+
+// For a pending registration, find another (non-rejected) record in the same batch with the same phone.
+function findDuplicateOf(students, s){
+  const k = normalizePhone(s.phone);
+  if(!k) return null;
+  return students.find(x => x.id!==s.id && x.status!=='rejected' && normalizePhone(x.phone)===k) || null;
+}
+
+async function deletePendingStudent(studentId){
+  const data = await loadBatchData(S.currentBatchId);
+  const s = data.students.find(x=>x.id===studentId);
+  if(!s) return false;
+  if(!confirm(`Delete ${s.name}'s pending registration?\n\nThis removes it completely (use this for duplicates).`)) return false;
+  data.students = data.students.filter(x=>x.id!==studentId);
+  await saveBatchData(S.currentBatchId, data, { excludeStudentIds: [studentId] });
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  await logNote(S.currentBatchId, batch ? batch.name : '', 'approval', `Pending registration "${s.name}" (${s.phone}) deleted`);
+  toast(`${s.name} deleted`);
+  if(document.getElementById('reg-body')) await renderRegBody();
+  return true;
+}
+
+async function dashDeletePending(batchId, studentId){
+  S.currentBatchId = batchId;
+  const done = await deletePendingStudent(studentId);
+  if(done) await viewDashboard(document.getElementById('content'));
+}
+
+async function dashReject(batchId, studentId){
+  S.currentBatchId = batchId;
+  const done = await rejectStudent(studentId);
+  if(done) await viewDashboard(document.getElementById('content'));
 }
 
 async function dashRemoveMember(batchId, studentId){
@@ -2286,7 +2324,7 @@ async function renderRegBody(){
       <button class="${S.regTab==='kicked'?'active':''}" onclick="setRegTab('kicked')">Kicked Out (${kicked.length})</button>
     </div>
 
-    ${S.regTab==='pending' ? renderPendingTable(pending) : S.regTab==='kicked' ? renderKickedTable(kicked) : renderApprovedTable(approved)}
+    ${S.regTab==='pending' ? renderPendingTable(pending, data.students) : S.regTab==='kicked' ? renderKickedTable(kicked) : renderApprovedTable(approved)}
 
     ${S.regTab==='approved' ? `
     <div class="card" style="margin-top:16px;">
@@ -2387,20 +2425,22 @@ function showBulkAddResultModal(added, addedNames, skippedRows){
   `;
 }
 
-function renderPendingTable(pending){
+function renderPendingTable(pending, allStudents){
   if(pending.length===0) return `<div class="card"><div class="empty-state">No pending registrations</div></div>`;
+  allStudents = allStudents || pending;
   return `<div class="card" style="overflow-x:auto;">
     <table><thead><tr><th>Name</th><th>State</th><th>Phone</th><th>Team/Leader</th><th>Notes</th><th>Submitted</th><th></th></tr></thead>
     <tbody>
       ${pending.map(s=>`
         <tr>
-          <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
+          <td>${escapeHtml(s.name)}${(d=>d ? `<span class="badge badge-dup" title="Same phone as ${escapeHtml(d.name)} (${escapeHtml(d.status||'approved')})">⚠ Duplicate</span>` : '')(findDuplicateOf(allStudents, s))}</td><td>${escapeHtml(s.agentId||'-')}</td><td>${escapeHtml(s.phone)}</td>
           <td>${escapeHtml(s.leader||'-')}</td><td>${escapeHtml(s.notes||'-')}</td>
           <td>${fmtDate(s.registeredAt)}</td>
           <td class="btn-row">
             <button class="btn btn-sm btn-amber" onclick="approveStudent('${s.id}')">Approve</button>
             <button class="btn btn-sm" onclick="editPendingStudent('${s.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="rejectStudent('${s.id}')">Reject</button>
+            <button class="btn btn-sm btn-danger" onclick="deletePendingStudent('${s.id}')">🗑 Delete</button>
           </td>
         </tr>`).join('')}
     </tbody></table>
@@ -2560,13 +2600,16 @@ async function approveStudent(studentId){
 }
 
 async function rejectStudent(studentId){
-  if(!confirm('Reject this registration?')) return;
   const data = await loadBatchData(S.currentBatchId);
   const s = data.students.find(x=>x.id===studentId);
-  if(s) s.status = 'rejected';
+  if(!confirm(s ? `Reject ${s.name}'s registration?` : 'Reject this registration?')) return false;
+  if(s){ s.status = 'rejected'; s.rejectedAt = new Date().toISOString(); }
   await saveBatchData(S.currentBatchId, data);
-  toast('Rejected');
-  await renderRegBody();
+  const batch = S.batches.find(b=>b.id===S.currentBatchId);
+  if(s) await logNote(S.currentBatchId, batch ? batch.name : '', 'approval', `${s.name} rejected`);
+  toast(s ? `${s.name} rejected` : 'Rejected');
+  if(document.getElementById('reg-body')) await renderRegBody();
+  return true;
 }
 
 async function editPendingStudent(studentId){
