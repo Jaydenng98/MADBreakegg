@@ -108,6 +108,9 @@
   .nav-group-label:hover{background:rgba(0,0,0,.3);}
   .nav-group-chevron{font-size:.7rem;opacity:.8;}
   .nav-group-label:first-of-type{margin-top:0;}
+  .program-switch{display:flex;background:rgba(255,255,255,.08);border-radius:8px;padding:3px;margin:0 0 12px;}
+  .program-switch button{flex:1;padding:7px 0;border:none;border-radius:6px;background:transparent;color:var(--chalk-dim);font-weight:700;font-size:.85rem;}
+  .program-switch button.active{background:var(--amber);color:#2B1B04;}
   .sidebar-brand span{display:block;font-family:'Caveat',cursive;font-size:1rem;color:var(--amber);font-weight:700;}
   .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px 9px 20px;border-radius:0 8px 8px 0;margin-bottom:2px;background:none;border:none;border-left:2px solid rgba(245,243,234,.12);color:var(--chalk);text-align:left;width:100%;font-size:.92rem;font-weight:500;white-space:nowrap;}
   .nav-item:hover{background:rgba(245,243,234,.08);border-left-color:rgba(245,243,234,.35);}
@@ -492,6 +495,51 @@ async function renameIndependentAttendanceDate(batchId, oldDate, newDate){
 }
 
 async function loadBatches(){ return (await getJSON('batches', true)) || []; }
+
+/* ------------------------------------------------------------
+   Programs — MAD Breakegg Program (original batches) and MAD Rookie
+   (new session, own batch numbering). Each batch carries a `program`
+   field; batches without one belong to Breakegg. Admin views show the
+   batches of the selected program only; member logins, registration
+   links and QR codes work across both.
+------------------------------------------------------------ */
+const PROGRAMS = {
+  breakegg: { name: 'MAD Breakegg Program', short: 'Breakegg' },
+  rookie:   { name: 'MAD Rookie',           short: 'Rookie' }
+};
+const PROGRAM_KEY = 'mad_admin_program_v1';
+function batchProgram(b){ return (b && PROGRAMS[b.program]) ? b.program : 'breakegg'; }
+function programNameForId(batchId){
+  const b = (S.batches||[]).find(x=>x.id===batchId);
+  return PROGRAMS[batchProgram(b)].name;
+}
+function top3Label(batchId){
+  const b = (S.batches||[]).find(x=>x.id===batchId);
+  return 'Top 3 ' + PROGRAMS[batchProgram(b)].short;
+}
+function currentProgram(){
+  if(S.program && PROGRAMS[S.program]) return S.program;
+  try{ const v = localStorage.getItem(PROGRAM_KEY); if(v && PROGRAMS[v]) return (S.program = v); }catch(e){}
+  return (S.program = 'rookie');
+}
+// Admin-only filter: keep the batches of the selected program, and make
+// sure the selected batch belongs to it.
+function programBatches(all){
+  if(!S.isAdmin) return all;
+  const prog = currentProgram();
+  const list = all.filter(b => batchProgram(b) === prog);
+  if(S.currentBatchId && !list.some(b=>b.id===S.currentBatchId)) S.currentBatchId = list.length ? list[0].id : null;
+  return list;
+}
+async function switchProgram(prog){
+  if(!PROGRAMS[prog] || prog === S.program) return;
+  S.program = prog;
+  try{ localStorage.setItem(PROGRAM_KEY, prog); }catch(e){}
+  S.currentBatchId = null;
+  S.batches = programBatches(await loadBatches());
+  renderSidebar();
+  await renderView();
+}
 async function saveBatches(arr, opts){
   S.batches = arr;
   const key = 'batches';
@@ -1099,7 +1147,7 @@ async function showPublicAttendance(batchId){
   S.paJustMarked = null;
   document.getElementById('login-screen').innerHTML = `
     <div class="login-card">
-      <p class="login-eyebrow">MAD Breakegg Program</p>
+      <p class="login-eyebrow">${escapeHtml(programNameForId(batchId))}</p>
       <h1 class="login-title">${escapeHtml(batch.name)}</h1>
       <p style="color:var(--muted);font-size:.85rem;margin-top:-14px;margin-bottom:16px;">Pick the date, then tap your own name to mark yourself present.</p>
       <div style="background:var(--amber);background:linear-gradient(135deg, rgba(232,163,61,.18), rgba(232,163,61,.28));border:1px solid rgba(232,163,61,.5);border-radius:12px;padding:14px 16px;margin-bottom:18px;">
@@ -1245,7 +1293,7 @@ async function showPublicRegister(batchId){
   const batch = S.batches.find(b=>b.id===batchId);
   document.getElementById('login-screen').innerHTML = `
     <div class="login-card">
-      <p class="login-eyebrow">MAD Breakegg Program</p>
+      <p class="login-eyebrow">${escapeHtml(programNameForId(batchId))}</p>
       <h1 class="login-title" id="pub-title">Register — ${escapeHtml(batch.name)}</h1>
       <div id="pubreg-form-area"></div>
     </div>
@@ -1257,7 +1305,7 @@ async function showPublicAccess(batchId){
   const batch = S.batches.find(b=>b.id===batchId);
   document.getElementById('login-screen').innerHTML = `
     <div class="login-card">
-      <p class="login-eyebrow">MAD Breakegg Program</p>
+      <p class="login-eyebrow">${escapeHtml(programNameForId(batchId))}</p>
       <h1 class="login-title" id="pub-title">Sign In — ${escapeHtml(batch.name)}</h1>
       <div id="pubreg-form-area"></div>
     </div>
@@ -1270,7 +1318,7 @@ async function showPublicQuickAccess(batchId){
   document.getElementById('login-screen').innerHTML = `
     <div style="width:100%;max-width:960px;">
       <div class="login-card" style="max-width:none;">
-        <p class="login-eyebrow">MAD Breakegg Program</p>
+        <p class="login-eyebrow">${escapeHtml(programNameForId(batchId))}</p>
         <h1 class="login-title" id="pbv-title">${escapeHtml(batch.name)}</h1>
         <div class="tab-strip" id="pbv-tabs">
           <button onclick="pbvSetTab('${batchId}','ranking')">Ranking Board</button>
@@ -1324,7 +1372,7 @@ async function renderPbvBody(batchId){
     body.innerHTML = `
       ${top3.poster ? `
       <div style="margin-bottom:16px;">
-        <h3 style="margin:0 0 10px;font-size:1rem;">🏆 Top 3 Breakegg</h3>
+        <h3 style="margin:0 0 10px;font-size:1rem;">🏆 ${top3Label(batchId)}</h3>
         <div class="photo-thumb" style="max-width:260px;aspect-ratio:auto;">
           <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
         </div>
@@ -1540,7 +1588,7 @@ function escapeHtml(str){
    Enter app / log out
 ============================================================ */
 async function enterApp(){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   S.navOpen = false;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-shell').classList.add('show');
@@ -1595,6 +1643,11 @@ const STUDENT_NAV = [
   ['stu-ranking','Ranking Board'],
 ];
 
+function sidebarProgramName(){
+  if(S.isAdmin) return PROGRAMS[currentProgram()].name;
+  if(S.student) return programNameForId(S.student.batchId);
+  return PROGRAMS.breakegg.name;
+}
 function renderSidebar(){
   const who = S.isAdmin ? 'Admin' : (S.student ? S.student.name : '');
   if(!S.navExpandedGroup){
@@ -1614,12 +1667,13 @@ function renderSidebar(){
     : STUDENT_NAV.map(([key,label])=>`<button class="nav-item ${S.view===key?'active':''}" onclick="switchView('${key}')">${label}</button>`).join('');
   document.getElementById('sidebar').innerHTML = `
     <div class="topbar">
-      <div class="topbar-brand"><img src="data:image/png;base64,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" alt="logo" style="width:22px;height:22px;vertical-align:middle;margin-right:4px;">MAD Breakegg Program</div>
+      <div class="topbar-brand"><img src="data:image/png;base64,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" alt="logo" style="width:22px;height:22px;vertical-align:middle;margin-right:4px;">${escapeHtml(sidebarProgramName())}</div>
       <button class="hamburger-btn" onclick="toggleNavMenu()" aria-label="Menu">☰</button>
     </div>
     <div class="nav-drawer-mask ${S.navOpen?'open':''}" onclick="closeNavMenu()"></div>
     <div class="nav-drawer ${S.navOpen?'open':''}">
-      <div class="sidebar-brand"><img src="data:image/png;base64,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" alt="logo" style="width:22px;height:22px;vertical-align:middle;margin-right:4px;">MAD Breakegg Program</div>
+      <div class="sidebar-brand"><img src="data:image/png;base64,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" alt="logo" style="width:22px;height:22px;vertical-align:middle;margin-right:4px;">${escapeHtml(sidebarProgramName())}</div>
+      ${S.isAdmin ? `<div class="program-switch">${Object.keys(PROGRAMS).map(k=>`<button class="${currentProgram()===k?'active':''}" onclick="switchProgram('${k}')">${PROGRAMS[k].short}</button>`).join('')}</div>` : ''}
       ${S.isAdmin ? `<button class="quick-add-btn" onclick="quickAddBatch()">+ New Batch</button>` : ''}
       ${navHtml}
       <div class="nav-spacer"></div>
@@ -1690,7 +1744,7 @@ async function renderView(){
    1. Dashboard Dashboard
 ------------------------------------------------------------ */
 async function viewDashboard(c){
-  const batches = await loadBatches();
+  const batches = programBatches(await loadBatches());
   S.batches = batches;
   const active = batches.filter(b=>b.status==='active').length;
   const totalStudents = batches.reduce((sum,b)=>sum+(b.studentCount||0),0);
@@ -1855,7 +1909,7 @@ async function dashSendTodayAttendance(batchId){
    2. Batches Batches
 ------------------------------------------------------------ */
 async function viewBatches(c){
-  const batches = await loadBatches();
+  const batches = programBatches(await loadBatches());
   S.batches = batches;
   const visible = batches.filter(b => S.showArchived ? true : !b.archived);
   c.innerHTML = `
@@ -1865,6 +1919,7 @@ async function viewBatches(c){
         <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--muted);">
           <input type="checkbox" ${S.showArchived?'checked':''} onchange="toggleShowArchived(this.checked)"> Show archived
         </label>
+        ${currentProgram()==='breakegg' ? `<button class="btn" onclick="openRookieSetupModal()">↪ Move Batches to MAD Rookie</button>` : ''}
         <button class="btn btn-amber" onclick="openBatchModal()">+ New Batch</button>
       </div>
     </div>
@@ -1941,11 +1996,76 @@ async function toggleArchiveBatch(id){
   await viewBatches(document.getElementById('content'));
 }
 
+function __nextNumKey(){ return currentProgram()==='rookie' ? 'next-batch-number-rookie' : 'next-batch-number'; }
 async function getNextBatchNumber(){
-  const n = await getJSON('next-batch-number', true);
-  return (n===null || n===undefined) ? 12 : n;
+  const n = await getJSON(__nextNumKey(), true);
+  return (n===null || n===undefined) ? (currentProgram()==='rookie' ? 1 : 12) : n;
 }
-async function setNextBatchNumber(n){ await setJSON('next-batch-number', n, true); }
+async function setNextBatchNumber(n){ await setJSON(__nextNumKey(), n, true); }
+
+/* ------------------------------------------------------------
+   Move Batches to MAD Rookie — moves Batch 15 onwards into the new
+   MAD Rookie session and renumbers them from 1 (15 → 1, 16 → 2 …).
+   Only the program and name change; links, QR codes, members and all
+   other data stay as they are. Breakegg batches before that are untouched.
+------------------------------------------------------------ */
+const __RK_RE = /\bBatch\s+(\d+)\b/i;
+function __rkPlan(all, startFrom){
+  return all.filter(b => batchProgram(b)==='breakegg').map(b => {
+    const m = String(b.name||'').match(__RK_RE);
+    const n = m ? parseInt(m[1],10) : null;
+    if(n===null || n < startFrom) return null;
+    return { b, n, newName: b.name.replace(__RK_RE, 'Batch ' + (n - startFrom + 1)) };
+  }).filter(Boolean).sort((x,y)=>x.n-y.n);
+}
+async function openRookieSetupModal(){
+  S.rookieSetup = { startFrom: 15, all: await loadBatches() };
+  renderRookieSetupModal();
+}
+function renderRookieSetupModal(){
+  const st = S.rookieSetup;
+  const plan = __rkPlan(st.all, st.startFrom);
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:560px;">
+        <h3>Move Batches to MAD Rookie</h3>
+        <div class="field"><label>Breakegg batch that becomes MAD Rookie Batch 1</label>
+          <input type="number" min="1" value="${st.startFrom}" onchange="S.rookieSetup.startFrom=Math.max(1,parseInt(this.value)||1);renderRookieSetupModal()">
+        </div>
+        <div style="max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
+          ${plan.length ? `<table><thead><tr><th>MAD Breakegg Program</th><th></th><th>MAD Rookie</th></tr></thead><tbody>
+            ${plan.map(p=>`<tr><td>${escapeHtml(p.b.name)}</td><td>→</td><td><b>${escapeHtml(p.newName)}</b></td></tr>`).join('')}
+          </tbody></table>` : `<div class="empty-state">No Breakegg batches numbered ${st.startFrom} or above</div>`}
+        </div>
+        <p style="font-size:.8rem;color:var(--muted);">Batches before ${st.startFrom} stay in MAD Breakegg Program unchanged. Registration links, QR codes, members, check-ins and everything else carry over as they are. New batches you create under MAD Rookie continue from the next number.</p>
+        <button class="btn btn-amber" style="width:100%;" ${plan.length?'':'disabled'} onclick="doRookieSetup()">Move ${plan.length} batch${plan.length===1?'':'es'}</button>
+      </div>
+    </div>
+  `;
+}
+async function doRookieSetup(){
+  const startFrom = S.rookieSetup.startFrom;
+  if(!confirm('Move these batches into MAD Rookie now?')) return;
+  const all = await loadBatches();
+  const plan = __rkPlan(all, startFrom);
+  if(!plan.length) return;
+  for(const p of plan){
+    const oldName = p.b.name;
+    if(!p.b.originalName) p.b.originalName = oldName;
+    p.b.program = 'rookie';
+    p.b.name = p.newName;
+    await logNote(p.b.id, p.newName, 'batch', `Moved to MAD Rookie (was "${oldName}" in MAD Breakegg Program)`);
+  }
+  await saveBatches(all);
+  const maxNew = Math.max(...plan.map(p=>p.n - startFrom + 1));
+  const rookieNext = await getJSON('next-batch-number-rookie', true);
+  if(!rookieNext || rookieNext <= maxNew) await setJSON('next-batch-number-rookie', maxNew + 1, true);
+  closeModal();
+  toast(`Moved ${plan.length} batch${plan.length===1?'':'es'} to MAD Rookie`);
+  S.view = 'batches';
+  S.program = null;
+  await switchProgram('rookie');
+}
 
 async function openBatchModal(){
   const nextNum = await getNextBatchNumber();
@@ -1955,7 +2075,7 @@ async function openBatchModal(){
   root.innerHTML = `
     <div class="modal-mask" onclick="if(event.target===this) closeModal()">
       <div class="modal">
-        <h3>New Batch</h3>
+        <h3>New Batch — ${escapeHtml(PROGRAMS[currentProgram()].name)}</h3>
         <div class="field"><label>Batch Name</label><input id="nb-name" value="Batch ${nextNum}"></div>
         <div class="field"><label>Start Date</label><input id="nb-date" type="date" value="${startDefault}"></div>
         <div class="field"><label>End Date</label><input id="nb-enddate" type="date" value="${endDefault}"></div>
@@ -1972,7 +2092,7 @@ async function openBatchModal(){
 function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
 
 async function viewBatchMembers(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
   if(!batch){
     c.innerHTML = `<div class="empty-state"><div class="big">👥</div>Please select a batch first.</div>`;
@@ -2222,7 +2342,7 @@ async function createBatch(nextNum){
   if(!name){ toast('Please enter a batch name'); return; }
   const batches = await loadBatches();
   const batch = {
-    id: uid('b'), name, startDate: date, endDate, sessions, tests,
+    id: uid('b'), program: currentProgram(), name, startDate: date, endDate, sessions, tests,
     status: 'active', archived: false, code: genCode(6), studentCount: 0, createdAt: new Date().toISOString()
   };
   batches.unshift(batch);
@@ -2273,7 +2393,7 @@ function batchSelectHtml(selectedId, onchangeFn){
    3. Registration Registration
 ------------------------------------------------------------ */
 async function viewRegistration(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   S.regTab = S.regTab || 'pending';
   c.innerHTML = `
@@ -2333,6 +2453,9 @@ async function renderRegBody(){
       <button class="${S.regTab==='pending'?'active':''}" onclick="setRegTab('pending')">Pending (${pending.length})</button>
       <button class="${S.regTab==='approved'?'active':''}" onclick="setRegTab('approved')">Approved Members (${approved.length})</button>
       <button class="${S.regTab==='kicked'?'active':''}" onclick="setRegTab('kicked')">Kicked Out (${kicked.length})</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin:-4px 0 12px;">
+      <button class="btn btn-sm" onclick="openBulkMoveModal()" title="Move registrations from this batch to another batch">↪ Move Registrations to Another Batch</button>
     </div>
 
     ${S.regTab==='pending' ? renderPendingTable(pending, data.students) : S.regTab==='kicked' ? renderKickedTable(kicked) : renderApprovedTable(approved)}
@@ -2697,6 +2820,130 @@ async function doTransfer(studentId){
   await renderRegBody();
 }
 
+/* ------------------------------------------------------------
+   Bulk Move — move every registration made in a given month from the
+   current batch to another batch (e.g. Batch 16's November sign-ups
+   → Batch 17). Records keep their status, login password and direct
+   link, so approved members can still sign in straight away.
+------------------------------------------------------------ */
+function __bmMonthKey(iso){
+  const d = new Date(iso || 0);
+  if(isNaN(d)) return '';
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function __bmGuessTarget(fromBatch, others){
+  const m = String(fromBatch && fromBatch.name || '').match(/(\d+)(?!.*\d)/);
+  if(m){
+    const want = String(parseInt(m[1],10) + 1);
+    const hit = others.find(b => { const n = String(b.name||'').match(/(\d+)(?!.*\d)/); return n && String(parseInt(n[1],10))===want; });
+    if(hit) return hit.id;
+  }
+  return others.length ? others[0].id : '';
+}
+async function openBulkMoveModal(){
+  const from = S.batches.find(b=>b.id===S.currentBatchId);
+  const others = S.batches.filter(b=>b.id!==S.currentBatchId);
+  if(!from){ toast('Select a batch first'); return; }
+  if(!others.length){ toast('No other batches to move to'); return; }
+  const now = new Date();
+  S.bulkMove = {
+    fromId: from.id,
+    toId: __bmGuessTarget(from, others),
+    month: now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0'),
+    statuses: { pending:true, approved:true, kicked:false, rejected:false },
+    unchecked: new Set()
+  };
+  S.bulkMoveData = await loadBatchData(from.id);
+  renderBulkMoveModal();
+}
+function __bmCandidates(){
+  const st = S.bulkMove;
+  return (S.bulkMoveData.students || []).filter(s => {
+    const status = s.status || 'approved';
+    return st.statuses[status] && __bmMonthKey(s.registeredAt) === st.month;
+  }).sort((a,b)=> new Date(a.registeredAt) - new Date(b.registeredAt));
+}
+function renderBulkMoveModal(){
+  const st = S.bulkMove;
+  const from = S.batches.find(b=>b.id===st.fromId);
+  const others = S.batches.filter(b=>b.id!==st.fromId);
+  const cands = __bmCandidates();
+  const selected = cands.filter(s=>!st.unchecked.has(s.id)).length;
+  const chk = (k,label) => `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:.85rem;"><input type="checkbox" ${st.statuses[k]?'checked':''} onchange="S.bulkMove.statuses['${k}']=this.checked;renderBulkMoveModal()"> ${label}</label>`;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-mask" onclick="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:640px;">
+        <h3>Move Registrations</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div class="field"><label>From batch</label><input readonly value="${escapeHtml(from.name)}"></div>
+          <div class="field"><label>Move to batch</label>
+            <select onchange="S.bulkMove.toId=this.value">${others.map(b=>`<option value="${b.id}" ${b.id===st.toId?'selected':''}>${escapeHtml(b.name)}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Registered in month</label><input type="month" value="${st.month}" onchange="S.bulkMove.month=this.value;S.bulkMove.unchecked=new Set();renderBulkMoveModal()"></div>
+        </div>
+        <div style="margin-bottom:10px;">${chk('pending','Pending')}${chk('approved','Approved')}${chk('kicked','Kicked out')}${chk('rejected','Rejected')}</div>
+        <div style="max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
+          ${cands.length ? `<table><thead><tr><th></th><th>Name</th><th>Phone</th><th>Status</th><th>Registered</th></tr></thead><tbody>
+            ${cands.map(s=>`<tr>
+              <td><input type="checkbox" ${st.unchecked.has(s.id)?'':'checked'} onchange="if(this.checked) S.bulkMove.unchecked.delete('${s.id}'); else S.bulkMove.unchecked.add('${s.id}'); renderBulkMoveModal()"></td>
+              <td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.phone||'-')}</td><td>${escapeHtml(s.status||'approved')}</td><td>${fmtDate(s.registeredAt)}</td>
+            </tr>`).join('')}
+          </tbody></table>` : `<div class="empty-state">No registrations in ${escapeHtml(from.name)} for that month</div>`}
+        </div>
+        <p style="font-size:.8rem;color:var(--muted);">Each person keeps their status, password and direct link. Anyone whose phone number is already in the target batch is skipped so no duplicates are created. Check-ins already recorded in ${escapeHtml(from.name)} stay with that batch.</p>
+        <button class="btn btn-amber" style="width:100%;" ${selected?'':'disabled'} onclick="doBulkMove()">Move ${selected} registration${selected===1?'':'s'}</button>
+      </div>
+    </div>
+  `;
+}
+async function doBulkMove(){
+  const st = S.bulkMove;
+  const from = S.batches.find(b=>b.id===st.fromId);
+  const to = S.batches.find(b=>b.id===st.toId);
+  if(!from || !to){ toast('Pick a target batch'); return; }
+  const chosenIds = new Set(__bmCandidates().filter(s=>!st.unchecked.has(s.id)).map(s=>s.id));
+  if(!chosenIds.size) return;
+  if(!confirm(`Move ${chosenIds.size} registration(s) from ${from.name} to ${to.name}?`)) return;
+
+  // Work from fresh copies of both batches
+  const fromData = await loadBatchData(from.id);
+  const toData = await loadBatchData(to.id);
+  const targetPhones = new Set(toData.students.filter(s=>s.status!=='rejected').map(s=>normalizePhone(s.phone)).filter(Boolean));
+  const moving = [], skipped = [];
+  for(const s of fromData.students){
+    if(!chosenIds.has(s.id)) continue;
+    const ph = normalizePhone(s.phone);
+    if(ph && targetPhones.has(ph)){ skipped.push(s); continue; }
+    if(ph) targetPhones.add(ph);
+    moving.push(s);
+  }
+  if(!moving.length){ closeModal(); toast('Nothing moved — all were already in ' + to.name); return; }
+
+  // Add to target first, so nobody is lost if the second save fails
+  const movedAt = new Date().toISOString();
+  const existingIds = new Set(toData.students.map(s=>s.id));
+  for(const s of moving){
+    toData.students.push({ ...s, id: existingIds.has(s.id) ? uid('s') : s.id, movedFromBatchId: from.id, movedFromBatchName: from.name, movedAt });
+  }
+  await saveBatchData(to.id, toData);
+  await recalcStudentCount(to.id, toData);
+
+  const movedIds = moving.map(s=>s.id);
+  const movedSet = new Set(movedIds);
+  fromData.students = fromData.students.filter(s=>!movedSet.has(s.id));
+  await saveBatchData(from.id, fromData, { excludeStudentIds: movedIds });
+  await recalcStudentCount(from.id, fromData);
+
+  const names = moving.map(s=>s.name).join(', ');
+  await logNote(from.id, from.name, 'register', `Moved ${moving.length} registration(s) to ${to.name}: ${names}`);
+  await logNote(to.id, to.name, 'register', `Received ${moving.length} registration(s) from ${from.name}: ${names}`);
+
+  closeModal();
+  toast(`Moved ${moving.length} to ${to.name}` + (skipped.length ? ` · ${skipped.length} skipped (already in ${to.name})` : ''));
+  if(skipped.length) alert(`Skipped because the phone number is already registered in ${to.name}:\n\n` + skipped.map(s=>`${s.name} (${s.phone})`).join('\n') + `\n\nThey are still in ${from.name}.`);
+  await renderRegBody();
+}
+
 async function resendCredentials(studentId){
   const data = await loadBatchData(S.currentBatchId);
   const s = data.students.find(x=>x.id===studentId);
@@ -2793,7 +3040,7 @@ async function deleteStudentPermanently(studentId){
    Batch Materials — Photos, Agenda, Timetable
 ------------------------------------------------------------ */
 async function viewMaterials(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   S.materialsOpenBatchId = null;
   c.innerHTML = `
     <div class="view-head">
@@ -2995,7 +3242,7 @@ async function handleTop3Upload(input){
   await saveTop3(S.currentBatchId, top3);
   input.value = '';
   const batch = S.batches.find(b=>b.id===S.currentBatchId);
-  if(batch) await logNote(S.currentBatchId, batch.name, 'top3', 'Top 3 Breakegg poster posted');
+  if(batch) await logNote(S.currentBatchId, batch.name, 'top3', top3Label(S.currentBatchId) + ' poster posted');
   toast('Poster posted — members can now see it');
   await renderRankingBody();
 }
@@ -3031,7 +3278,7 @@ async function updateTimetableField(session, field, value){
    4. Attendance — real calendar dates
 ------------------------------------------------------------ */
 async function viewAttendance(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -3274,7 +3521,7 @@ async function toggleAttendance(studentId, d){
    Appointments log
 ------------------------------------------------------------ */
 async function viewAppointments(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -3416,7 +3663,7 @@ async function saveEditAppointmentAdmin(id){
    Recruitment log
 ------------------------------------------------------------ */
 async function viewRecruitmentLog(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -3542,7 +3789,7 @@ async function saveEditRecruitAdmin(id){
    Presentation Assignments (Senior -> members they handle)
 ------------------------------------------------------------ */
 async function viewPresentation(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -3570,7 +3817,7 @@ async function downloadPresentationImage(){
   temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:860px;background:#EDE7D6;font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,sans-serif;';
   temp.innerHTML = `
     <div style="background:linear-gradient(135deg,#1F3D2F 0%,#16281F 100%);padding:36px 40px 30px;text-align:center;">
-      <p style="margin:0;font-size:.82rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#E8A33D;">🥚 MAD Breakegg Program</p>
+      <p style="margin:0;font-size:.82rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#E8A33D;">🥚 ${escapeHtml(programNameForId(batch.id))}</p>
       <h1 style="margin:8px 0 4px;font-size:2rem;color:#F5F3EA;font-weight:900;letter-spacing:.3px;">${escapeHtml(batch.name)}</h1>
       <div style="display:inline-block;margin-top:4px;padding:5px 16px;background:rgba(232,163,61,.18);border:1px solid rgba(232,163,61,.5);border-radius:20px;">
         <span style="color:#E8A33D;font-weight:700;font-size:.85rem;letter-spacing:.5px;">🎤 PRESENTATION ASSIGNMENTS</span>
@@ -3822,7 +4069,7 @@ async function deletePresentationMember(groupId, memberId){
    Ranking Board
 ------------------------------------------------------------ */
 async function viewRanking(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -3899,7 +4146,7 @@ async function renderRankingBody(){
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">🏆 Top 3 Breakegg Poster</h3>
+      <h3 style="margin-top:0;">🏆 ${top3Label(S.currentBatchId)} Poster</h3>
       <p style="color:var(--muted);font-size:.8rem;margin-top:-6px;">Upload one poster image — it only shows to members and on the shared link once you've posted it.</p>
       ${top3.poster ? `
         <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3Modal()">
@@ -3966,7 +4213,7 @@ async function updateRankingField(studentId, field, value){
    5. Marks Marks
 ------------------------------------------------------------ */
 async function viewMarks(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -4029,7 +4276,7 @@ async function saveMark(studentId, value){
 ------------------------------------------------------------ */
 async function viewNotifications(c){
   const notes = await loadNotifications();
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   c.innerHTML = `
     <div class="view-head">
       <div><h2 class="view-title">Notifications</h2><p class="view-desc">System activity log and reminders (shown in-app, not real SMS/email)</p></div>
@@ -4067,7 +4314,7 @@ async function clearAllNotifications(){
    7. Reports Reports
 ------------------------------------------------------------ */
 async function viewReports(c){
-  S.batches = await loadBatches();
+  S.batches = programBatches(await loadBatches());
   if(!S.currentBatchId && S.batches.length) S.currentBatchId = S.batches[0].id;
   c.innerHTML = `
     <div class="view-head">
@@ -4452,7 +4699,7 @@ async function viewStuMaterials(c){
     </div>
     ${top3.poster ? `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <h3 style="margin-top:0;">🏆 ${top3Label(S.student.batchId)}</h3>
       <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3ModalStu()">
         <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
       </div>
@@ -4783,7 +5030,7 @@ async function viewStuRanking(c){
     <div class="view-head"><div><h2 class="view-title">Ranking Board</h2><p class="view-desc">See how everyone in your batch is scoring</p></div></div>
     ${top3.poster ? `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">🏆 Top 3 Breakegg</h3>
+      <h3 style="margin-top:0;">🏆 ${top3Label(S.student.batchId)}</h3>
       <div class="photo-thumb" style="max-width:280px;aspect-ratio:auto;" onclick="openTop3ModalStu()">
         <img src="${top3.poster}" alt="top3 poster" style="width:100%;height:auto;display:block;">
       </div>
